@@ -218,15 +218,37 @@ Not needed yet, and the ceiling is known: batching removes only the network cost
 ~42,000 evals/s of tree walking per process. Revisit only if self-play becomes dominant
 again at a scale where 10 processes are not enough.
 
-### Phase 3 — Evaluation and gating
+### Phase 3 — Evaluation and gating — **done**
 
-- [ ] Keep generational checkpoints, not a single overwritten file (see Results — run 1
-      is unrecoverable, so it cannot be played against run 2)
-- [ ] Arena: play two checkpoints against each other, alternating who moves first
-- [ ] Elo tracking across generations
-- [ ] Comparison against a perfect Connect 4 solver — the external yardstick
-- [ ] Gate: only promote a new network if it beats the incumbent by a margin
-- [ ] Replace the tactical probes, which have now twice proved misleading
+- [x] Arena (`src/caissa/arena.py`) — colour-reversed pairs from shared random openings,
+      so a match measures the players and not the first-move advantage
+- [x] Elo with a confidence interval, and a `significant` flag when the interval
+      excludes zero
+- [x] `games_needed` / `resolvable_elo` — the sample size a claim requires, and the
+      smallest difference a sample can resolve
+- [x] Champion-challenger gating, off by default (AlphaZero dropped it too)
+- [x] Generational checkpoints (`--checkpoint-every`)
+- [x] Perfect Connect 4 solver (`src/caissa/solver.py`) — bitboard alpha-beta with a
+      transposition table
+- [x] `accuracy()` against ground truth, excluding positions where no mistake is available
+- [x] `scripts/evaluate.py` (two checkpoints) and `scripts/accuracy.py` (against perfect play)
+- [x] Tactical probes retired
+- [x] Tests, 146 in total, mutation-verified against fourteen deliberate bugs
+
+**Solver cost.** Exponential in the empty squares, so Python can grade the endgame and not
+the opening:
+
+| ply | median solve |
+|---|---|
+| 22+ | < 1 ms |
+| 18 | 14 ms |
+| 16 | ~0 ms, 0.4 s worst case |
+| 14 | 0.73 s, 8 s worst case |
+| 12 | 35 s, 116 s worst case |
+
+Ply 18–22 is the working window: fast, and ~60% of random positions there still have a
+wrong answer available. Deeper positions are mostly already decided — at ply 24–30, nine
+sampled positions in twelve had no mistake to make.
 
 ### Phase 4 — Browser, Connect 4 playable
 
@@ -321,6 +343,38 @@ data or a real shortfall is not answerable without comparing checkpoints — whi
 **Gap found: no checkpoint history.** `scripts/train.py` overwrites a single file, so run 1
 is gone and cannot be played against run 2. The arena needs generational checkpoints to
 measure against, so Phase 3 must add them.
+
+### Connect 4 against perfect play (run 2 checkpoint, 10,000 games)
+
+237 random positions at ply 18–22 where a mistake was available.
+
+| | accuracy |
+|---|---|
+| random legal move | 28.2% |
+| untrained network, no search | 23.4% |
+| **trained network, no search** | **59.7%** |
+| search alone, uniform evaluator, 50 sims | 86.9% |
+| trained network, 50 sims | 86.9% |
+| search alone, uniform evaluator, 200 sims | 96.6% |
+| trained network, 200 sims | 93.7% |
+
+**The network has learned real chess-like knowledge**: 59.7% against 28.2% for random, with
+no search at all, and the untrained network is *worse* than random.
+
+**But its contribution on top of search is not detectable here.** Paired McNemar tests:
+50 simulations with and without the network differ on 50 of 237 positions, 25 each way,
+p = 1.00. At 200 simulations, 14 favour plain search and 7 the network, p = 0.19. What *is*
+significant is more search: 50 against 200 simulations differs 1 to 17, p < 0.001.
+
+**An earlier 124-position run of the same comparison read 83.9% against 78.2%** and looked
+like a clear regression caused by the network. It was noise. The paired test on a larger
+sample put the two at exactly equal. This happened in the phase built specifically to stop
+such conclusions, which is the strongest possible argument for the phase existing.
+
+**Caveat on coverage.** Ply 18–22 is the regime where raw search is strongest, because
+terminal positions are within reach of even 50 simulations. A learned value function should
+matter most in the opening — which is exactly what this solver cannot reach. The measurement
+is honest about the endgame and silent about the rest.
 
 ---
 
@@ -488,6 +542,36 @@ not a substitute for the AlphaZero paper.
 - **Fixing the bottleneck moves it** — self-play was 95% of the time, then 13%. Any change
   large enough to be worth making invalidates the measurement that justified it, so measure
   again afterwards rather than assuming the shape held.
+
+### Phase 3
+
+- **A hierarchy of yardsticks, not one number** — training loss is fully circular; beating
+  the previous generation is relative and can drift; beating a fixed opponent is honest but
+  narrow; agreeing with perfect play is the only absolute. Each level costs more and each
+  one can contradict the level below it.
+- **Elo assumes transitivity, and self-play breaks it** — a network can beat its predecessor
+  while losing to something older. A rising curve built only from consecutive matchups can
+  describe an agent going in circles, which is why it needs an anchor.
+- **Sample size is the measurement** — near even, one Elo point is worth 0.0014 of a point
+  per game against a per-game standard deviation of 0.5, so precision costs quadratically:
+  100 Elo takes ~50 games, 10 Elo takes ~4,600. AlphaGo Zero's promotion gate of 400 games
+  at 55% is not a round number; 400 games resolves 34 Elo and 55% *is* 35 Elo. The threshold
+  was chosen to match the sample.
+- **A gate below what its sample resolves promotes on noise** — 40 games resolve ~111 Elo,
+  so a 55% threshold on 40 games fires on results that mean nothing, and the agent wanders
+  while every report looks healthy.
+- **Colour-reversed pairs from a shared opening** — both players face the same position from
+  both sides, so an opening that simply favours whoever starts cancels instead of adding
+  variance. Essential in a game like Connect 4 that the first player wins outright.
+- **A benchmark must only ask questions that can be answered wrongly** — in a lost position
+  every move preserves the outcome, so scoring it is a free mark. Measured in enough
+  hopeless positions, an agent scores well for doing nothing.
+- **Test where the agent does not choose to go** — grading it on positions from its own
+  games flatters it, because it never has to answer the questions it is bad at. A fixed
+  random sample is the same exam for every generation.
+- **I nearly published noise as a finding** — a 124-position comparison said the network
+  made search 5.7 points worse. A paired test on 237 positions put them exactly level. The
+  discipline this whole phase is about caught an error made while building it.
 
 ---
 

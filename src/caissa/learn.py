@@ -41,6 +41,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from caissa.arena import MatchResult, Player, play_match
 from caissa.mcts import MCTS, MCTSConfig
 from caissa.parallel import ParallelSelfPlay, single_threaded
 from caissa.network import (
@@ -52,6 +53,32 @@ from caissa.network import (
 from caissa.replay import ReplayBuffer
 from caissa.selfplay import SelfPlayConfig, generate
 from caissa.train import Losses, TrainConfig, make_optimizer, train_step
+
+
+@dataclass
+class GateConfig:
+    """Champion-challenger promotion, as in AlphaGo Zero.
+
+    A new network only replaces the one generating self-play data if it beats it
+    by a margin. The protection is real - a bad iteration cannot poison the data
+    for every iteration after it - but it is not free, and AlphaZero dropped it
+    entirely in favour of always using the latest network.
+
+    The trade is worth understanding. Gating costs a match every iteration, and
+    the match has to be large enough to mean something: AlphaGo Zero used 400
+    games at a 55% threshold, which is almost exactly the sample needed to
+    resolve 35 Elo at 95% confidence. A cheap 40-game gate resolves only about
+    110 Elo, so it will reject genuine improvements smaller than that and let the
+    agent stall while reporting nothing wrong.
+    """
+
+    enabled: bool = False
+    games: int = 40
+    #: Score the challenger must exceed. 0.5 promotes on any edge, including one
+    #: indistinguishable from noise.
+    threshold: float = 0.55
+    simulations: int = 50
+    opening_plies: int = 2
 
 
 @dataclass
@@ -75,6 +102,7 @@ class LearnConfig:
     mcts: MCTSConfig = field(default_factory=MCTSConfig)
     selfplay: SelfPlayConfig = field(default_factory=SelfPlayConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
+    gate: GateConfig = field(default_factory=GateConfig)
 
 
 @dataclass
@@ -85,6 +113,9 @@ class IterationStats:
     buffer: int
     losses: Losses | None
     seconds: float
+    #: Result of the promotion match, when gating is on.
+    gate: MatchResult | None = None
+    promoted: bool = False
     #: Split out so it stays visible which half is the bottleneck. It moves:
     #: self-play dominated by 10x before parallelism, much less so after.
     selfplay_seconds: float = 0.0
@@ -97,8 +128,15 @@ class IterationStats:
                 f"(play {self.selfplay_seconds:>4.1f} train {self.train_seconds:>4.1f})")
         if self.losses is None:
             return head + "   (filling buffer)"
-        return (head + f"   loss {self.losses.total:.4f}"
+        text = (head + f"   loss {self.losses.total:.4f}"
                 f"  policy {self.losses.policy:.4f}  value {self.losses.value:.4f}")
+        if self.gate is not None:
+            verdict = "promoted" if self.promoted else "kept incumbent"
+            low, high = self.gate.interval
+            text += (f"\n         gate {self.gate.score:.1%} over {self.gate.games} "
+                     f"games ({self.gate.elo:+.0f} Elo [{low:+.0f}, {high:+.0f}]) "
+                     f"-> {verdict}")
+        return text
 
 
 class Learner:
@@ -121,6 +159,10 @@ class Learner:
         self.iteration = 0
         self.history: list[IterationStats] = []
         self._pool: ParallelSelfPlay | None = None
+        # The network that generates self-play data. Without gating it is simply
+        # the latest one; with gating it is the last one to win a promotion
+        # match, so a bad iteration cannot poison every iteration after it.
+        self.best_net = self.cpu_net() if self.config.gate.enabled else None
 
     def __enter__(self) -> Learner:
         return self
@@ -149,10 +191,14 @@ class Learner:
         )
         return mirror
 
+    def playing_net(self) -> PolicyValueNet:
+        """The network self-play uses: the incumbent if gating, else the latest."""
+        return self.best_net if self.best_net is not None else self.cpu_net()
+
     def _mcts(self) -> MCTS:
         # Rebuilt each iteration so it always wraps the current network.
-        return MCTS(self.game, NetworkEvaluator(self.cpu_net()), self.config.mcts,
-                    rng=self.rng)
+        return MCTS(self.game, NetworkEvaluator(self.playing_net()),
+                    self.config.mcts, rng=self.rng)
 
     def _generate(self):
         """Produce this iteration's self-play data, in parallel if configured."""
@@ -175,7 +221,9 @@ class Learner:
         # would fill with variations on a single opening.
         seed = int(self.rng.integers(0, 2**31 - 1))
         return self._pool.generate(
-            self.net.state_dict(), self.config.games_per_iteration, seed
+            self.playing_net().state_dict(),
+            self.config.games_per_iteration,
+            seed,
         )
 
     def run_iteration(self) -> IterationStats:
@@ -203,6 +251,8 @@ class Learner:
             losses = Losses(totals[0] / n, totals[1] / n, totals[2] / n)
         train_seconds = time.perf_counter() - train_started
 
+        gate_result, promoted = self._run_gate(trained=losses is not None)
+
         stats = IterationStats(
             iteration=self.iteration,
             games=self.config.games_per_iteration,
@@ -212,9 +262,29 @@ class Learner:
             seconds=time.perf_counter() - started,
             selfplay_seconds=selfplay_seconds,
             train_seconds=train_seconds,
+            gate=gate_result,
+            promoted=promoted,
         )
         self.history.append(stats)
         return stats
+
+    def _run_gate(self, trained: bool) -> tuple[MatchResult | None, bool]:
+        """Play the challenger against the incumbent and decide on promotion."""
+        gate = self.config.gate
+        if not gate.enabled or self.best_net is None or not trained:
+            return None, False
+
+        challenger = Player("challenger", NetworkEvaluator(self.cpu_net()),
+                            gate.simulations)
+        incumbent = Player("incumbent", NetworkEvaluator(self.best_net),
+                           gate.simulations)
+        result = play_match(self.game, challenger, incumbent, gate.games,
+                            self.rng, gate.opening_plies)
+
+        promoted = result.score > gate.threshold
+        if promoted:
+            self.best_net = self.cpu_net()
+        return result, promoted
 
     # ------------------------------------------------------------- persistence
 
@@ -250,5 +320,7 @@ class Learner:
             )
         self.net.load_state_dict(checkpoint["network"])
         self.net.to(self.device)
+        if self.best_net is not None:
+            self.best_net = self.cpu_net()
         self.optimizer.load_state_dict(checkpoint["optimizer"])
         self.iteration = checkpoint["iteration"]

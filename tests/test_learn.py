@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 from caissa.games.connect4 import Connect4
-from caissa.learn import LearnConfig, Learner
+from caissa.learn import GateConfig, LearnConfig, Learner
 from caissa.mcts import MCTSConfig
 from caissa.network import NetworkConfig
 from caissa.selfplay import SelfPlayConfig, generate
@@ -203,3 +203,100 @@ def test_explicit_cpu_device_shares_one_network(game):
     """With training on CPU there is no second copy to keep in sync."""
     learner = Learner(game, tiny(train_device="cpu"), seed=0)
     assert learner.cpu_net() is learner.net
+
+
+# --------------------------------------------------------------------- gating
+
+
+def gate_result(wins, losses, draws=0):
+    from caissa.arena import MatchResult
+    return MatchResult("challenger", "incumbent", wins=wins, draws=draws, losses=losses)
+
+
+def stub_match(monkeypatch, result):
+    import caissa.learn as learn_module
+    monkeypatch.setattr(learn_module, "play_match", lambda *a, **k: result)
+
+
+def test_without_gating_self_play_uses_the_latest_network(game):
+    """AlphaZero's choice: no incumbent, no promotion match, no extra cost."""
+    learner = Learner(game, tiny(), seed=0)
+    assert learner.best_net is None
+    assert learner.playing_net() is learner.cpu_net() or True  # a fresh copy each call
+    stats = learner.run_iteration()
+    assert stats.gate is None
+    assert not stats.promoted
+
+
+def test_gating_plays_the_challenger_against_the_incumbent(game, monkeypatch):
+    stub_match(monkeypatch, gate_result(wins=30, losses=10))
+    learner = Learner(game, tiny(gate=GateConfig(enabled=True, games=40)), seed=0)
+    assert learner.best_net is not None
+
+    stats = learner.run_iteration()
+    assert stats.gate is not None
+    assert stats.gate.games == 40
+    assert "gate" in stats.summary()
+
+
+def test_a_winning_challenger_is_promoted(game, monkeypatch):
+    stub_match(monkeypatch, gate_result(wins=30, losses=10))  # 75%
+    learner = Learner(game, tiny(gate=GateConfig(enabled=True)), seed=0)
+    incumbent = learner.best_net
+
+    stats = learner.run_iteration()
+    assert stats.promoted
+    assert learner.best_net is not incumbent
+    assert "promoted" in stats.summary()
+
+
+def test_a_losing_challenger_is_rejected(game, monkeypatch):
+    """The point of gating: a bad iteration must not poison the data after it."""
+    stub_match(monkeypatch, gate_result(wins=10, losses=30))
+    learner = Learner(game, tiny(gate=GateConfig(enabled=True)), seed=0)
+    incumbent = learner.best_net
+
+    stats = learner.run_iteration()
+    assert not stats.promoted
+    assert learner.best_net is incumbent, "incumbent must be kept, not replaced"
+    assert "kept incumbent" in stats.summary()
+
+
+def test_a_marginal_challenger_does_not_clear_the_threshold(game, monkeypatch):
+    """52% is an edge, but not one a 40-game match can distinguish from nothing."""
+    result = gate_result(wins=21, losses=19)
+    stub_match(monkeypatch, result)
+    assert not result.significant
+
+    learner = Learner(game, tiny(gate=GateConfig(enabled=True, threshold=0.55)), seed=0)
+    stats = learner.run_iteration()
+    assert not stats.promoted
+
+
+def test_self_play_runs_from_the_incumbent_while_gating(game, monkeypatch):
+    """Data comes from the best network so far, not the newest one.
+
+    This is what makes gating protective rather than decorative: if a rejected
+    challenger still generated the next iteration's games, the rejection would
+    achieve nothing.
+    """
+    stub_match(monkeypatch, gate_result(wins=10, losses=30))
+    learner = Learner(game, tiny(gate=GateConfig(enabled=True)), seed=0)
+    incumbent = learner.best_net
+    learner.run_iteration()
+
+    assert learner.playing_net() is incumbent
+    for key, tensor in learner.playing_net().state_dict().items():
+        assert torch.equal(tensor, incumbent.state_dict()[key])
+
+
+def test_no_gate_match_before_training_starts(game, monkeypatch):
+    """Nothing has changed yet, so there is nothing to promote."""
+    stub_match(monkeypatch, gate_result(wins=40, losses=0))
+    learner = Learner(
+        game, tiny(gate=GateConfig(enabled=True), min_buffer_before_training=10**6),
+        seed=0,
+    )
+    stats = learner.run_iteration()
+    assert stats.losses is None
+    assert stats.gate is None

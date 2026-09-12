@@ -8,9 +8,10 @@ Reversi or chess without changes to the search or training code.
 
 ## Status
 
-Phases 0 through 2 complete: the `Game` contract and Connect 4, MCTS with PUCT, the
-policy/value network, the self-play and training loop, and parallel self-play (27x faster
-per game). Next is Phase 3, evaluation and gating.
+Phases 0 through 3 complete: the `Game` contract and Connect 4, MCTS with PUCT, the
+policy/value network, the self-play and training loop, parallel self-play (27x faster per
+game), and evaluation — an arena with Elo and confidence intervals, plus a perfect solver
+to grade against. Next is Phase 4, the browser.
 See [PLAN.md](PLAN.md) for the full roadmap, decision log and progress checklist.
 
 ## Development
@@ -29,3 +30,9 @@ Train Connect 4:
 
 Self-play runs across worker processes on the CPU; the gradient steps run on the GPU. Any
 script that starts the pool must guard its entry point with `if __name__ == "__main__":`.
+
+Measure a checkpoint against perfect play, or against another checkpoint:
+
+```bash
+.venv/bin/python scripts/accuracy.py models/connect4-latest.pt --positions 200
+```
