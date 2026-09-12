@@ -63,9 +63,18 @@ class Game(Protocol[State]):
     def terminal_value(self, state: State) -> float | None:
         """``None`` if the game continues, otherwise the result for the mover.
 
-        Note that in most games this is never +1: if the player to move had just
-        won, the game would already have ended on the previous ply. Seeing only
-        -1 and 0 here is expected, not a bug.
+        Whether +1 is reachable here is a property of the *game*, not of the
+        convention, and the difference is worth knowing before writing an
+        assertion about it.
+
+        In a game that ends the moment someone wins - Connect 4, Gomoku - it is
+        not: the winner made the last move, so the game ended on their opponent's
+        turn, and a mover-relative value is only ever -1 or 0.
+
+        In a game that ends some other way it is perfectly normal. Reversi
+        finishes when *neither* side can move, and the player to move at that
+        point may well be the one holding more discs. Over 400 random games it
+        returns +1 about a third of the time.
         """
 
     def encode(self, state: State) -> np.ndarray:

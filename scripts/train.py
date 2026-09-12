@@ -48,7 +48,9 @@ def main() -> None:
                         help="training device; default auto-detects (mps/cuda/cpu)")
     parser.add_argument("--eval-every", type=int, default=5,
                         help="iterations between progress matches; 0 disables")
-    parser.add_argument("--eval-games", type=int, default=60)
+    parser.add_argument("--eval-games", type=int, default=100,
+                        help="a match this size resolves ~69 Elo; smaller "
+                             "samples cannot see a typical per-step gain")
     parser.add_argument("--gate", action="store_true",
                         help="only promote a network that beats the incumbent")
     parser.add_argument("--gate-games", type=int, default=40)

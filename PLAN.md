@@ -96,10 +96,15 @@ scratch, so treat them as fixed unless there is a deliberate decision to revisit
    rather than one per side, and every self-play position trains both sides at once.
 
 2. **Mover-relative values.** Every value answers *"how good is this for the player to
-   move?"* — `+1` win, `-1` loss, `0` draw. `terminal_value()` will therefore normally
-   return only `-1` or `0`, never `+1`: a player cannot be on move having already won.
-   Confusing this with an absolute "good for player one" convention is the classic way to
-   build an agent that trains hard toward losing.
+   move?"* — `+1` win, `-1` loss, `0` draw. Confusing this with an absolute "good for
+   player one" convention is the classic way to build an agent that trains hard toward
+   losing.
+
+   Whether `+1` ever appears is a property of the game, not of the convention. Connect 4
+   ends the instant someone wins, so the game always ends on the loser's turn and
+   `terminal_value()` returns only `-1` or `0`. Reversi ends when *neither* side can move,
+   and the player to move may hold more discs — it returns `+1` about a third of the time.
+   Phase 5 found this by asserting the Connect 4 behaviour as if it were universal.
 
 3. **Action masks, not action lists.** `legal_actions()` returns a boolean array as wide as
    the network's policy output. Illegal actions are set to `-inf` before the softmax, so no
@@ -293,11 +298,31 @@ never measured, and it is visibly the weakest part of its game.
 - [ ] A faster solver (Rust, or a precomputed opening table) would let the opening be
       measured rather than guessed at
 
-### Phase 5 — Reversi
+### Phase 5 — Reversi — **done**
 
-- [ ] Reversi rules, including pass handling
-- [ ] 8-fold symmetry
-- [ ] Train, and confirm the framework needed no algorithm changes
+- [x] Reversi rules (`src/caissa/games/reversi.py`), passing as an explicit 65th action
+- [x] The full dihedral symmetry — eight variants per position, with the pass action
+      deliberately held out of the permutation
+- [x] Trained, and **the framework needed no algorithm changes**
+- [x] TypeScript port with cross-language vectors, and the search validated against
+      Python's exact visit counts for Reversi as well as Connect 4
+- [x] Both games playable in the browser, chosen from a menu
+- [x] Tests: 182 Python, 30 TypeScript, mutation-verified against eight deliberate bugs
+
+**The abstraction held.** The only edit to existing framework code was three lines adding
+Reversi to the registry. Search, network, training, replay, parallel self-play, arena and
+Elo all ran unchanged on a different board size, a different action space, a different
+terminal rule and four times the symmetry.
+
+**Passing is an explicit action, not an implicit skip.** A player with no legal move does
+not lose and the game does not end — which breaks the assumption every simple board game
+encourages. Making it the 65th action keeps the invariant everything else depends on:
+`apply` always switches the player, so the canonical sign flip stays exactly one per move.
+The implicit version would sometimes leave the same player to move.
+
+**One termination rule, not two.** The game ends on two consecutive passes. A full board
+reaches that the same way, via two forced passes, so "the board is full" and "nobody can
+move" cannot disagree, because only the second exists.
 
 ### Phase 6+ — More games, then chess
 
@@ -409,6 +434,35 @@ such conclusions, which is the strongest possible argument for the phase existin
 terminal positions are within reach of even 50 simulations. A learned value function should
 matter most in the opening — which is exactly what this solver cannot reach. The measurement
 is honest about the endgame and silent about the rest.
+
+### Reversi, first training run (30 iterations, 100 games each, 50 simulations)
+
+499 k parameter network, ~12 minutes, 3,000 games and 1.5 M augmented positions (the 8-fold
+symmetry doing its work: 100 games produce 50,000 training samples).
+
+**The in-training evaluations said progress had stopped. They were wrong.**
+
+| | reported | sample resolves |
+|---|---|---|
+| gen10 vs gen5, 40 games | 97.5%, +636 Elo | ~111 Elo |
+| gen15 vs gen10, 40 games | 80%, +241 Elo | ~111 Elo |
+| gen20 vs gen15, 40 games | 77.5%, +215 Elo | ~111 Elo |
+| gen25 vs gen20, 40 games | 46.2%, −26 Elo, **not significant** | ~111 Elo |
+| gen30 vs gen25, 40 games | 60%, +70 Elo, **not significant** | ~111 Elo |
+| **gen30 vs gen20, 200 games** | **82%, +263 Elo [+207, +335]** | **~48 Elo** |
+
+Two consecutive 40-game matches showed nothing, one of them slightly negative, and the
+obvious reading was that training had plateaued after iteration 20. A 200-game match across
+the same ten iterations says **+263 Elo, decisively**.
+
+Nothing plateaued. A 40-game match cannot resolve better than ~111 Elo, and the per-step
+gains had dropped to roughly 60–70 — real, and invisible to the instrument. Early gains were
+large enough to clear the bar; later ones were not, which makes an underpowered evaluation
+look exactly like a plateau at precisely the point where it stops being able to see.
+
+The default evaluation sample is now 100 games rather than 40, and the help text says what
+that resolves. `resolvable_elo` was written in Phase 3 specifically to prevent this mistake,
+and it was still made — because the number was printed and not acted on.
 
 ---
 
@@ -632,6 +686,38 @@ not a substitute for the AlphaZero paper.
 - **Send the move list, not the position** — the worker replays from scratch. Sending a
   board would mean two copies of the game state that have to agree, and the bug where they
   stop agreeing is silent.
+
+### Phase 5
+
+- **An abstraction is only proved by the second implementation** — a contract validated
+  against one game is a guess. Reversi differs in board size, action space, terminal rule
+  and symmetry count, and required three lines of registration. That is the evidence the
+  Phase 0 design was right; nothing before it was.
+- **No legal move does not mean the game is over** — the assumption Connect 4 quietly
+  encourages, and the one Reversi breaks. A framework that equated an empty move list with
+  a finished game would have scored a forced pass as a result.
+- **A convention's visible consequence can be game-specific** — Phase 0 recorded that
+  `terminal_value` "normally returns only -1 or 0, never +1", which is true of Connect 4
+  and *false* of Reversi: it ends when neither side can move, and the player to move may
+  hold more discs, so +1 appears about a third of the time. The convention never changed;
+  the observation had been generalised from a single sample. The TypeScript port asserted
+  it for both games and Reversi rejected it.
+- **Symmetry has to know what is not a square** — the pass action means the same thing
+  however the board is turned, so it is held out of the permutation. Rotating it with the
+  squares would pair every augmented position with a policy whose last entry belongs to a
+  different action, and with eight variants per position that corrupts data four times
+  faster than Connect 4's two ever could.
+- **A clean sweep is a bound, not a measurement** — 40-0 makes the sample variance zero, and
+  a normal approximation collapses the interval to a point, printing a clamped +3600 Elo as
+  though it had been measured. The rule of three gives the honest version: zero losses in n
+  games puts the 95% bound on losing at 3/n, so 40-0 means ">+436 Elo" and 400-0 means
+  ">+849". Found by reading the training log rather than by a failing test.
+- **An underpowered measurement looks exactly like a plateau** — and it starts looking like
+  one at precisely the moment it loses the ability to see. Two 40-game matches showed no
+  progress across ten Reversi iterations; a 200-game match across the same span showed
+  +263 Elo. The gains had fallen to roughly 60-70 Elo per step and a 40-game sample cannot
+  resolve better than 111. Before concluding that learning has stopped, check whether the
+  instrument could still have detected it.
 
 ---
 

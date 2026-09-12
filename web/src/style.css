@@ -50,11 +50,13 @@ h1 { font-size: 20px; font-weight: 650; margin: 0 0 4px; letter-spacing: -0.01em
   border-radius: 14px;
   padding: 10px;
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
   gap: 8px;
   box-shadow: var(--shadow);
   touch-action: manipulation;
 }
+
+.grid-7 { grid-template-columns: repeat(7, 1fr); }
+.grid-8 { grid-template-columns: repeat(8, 1fr); gap: 4px; }
 
 .cell {
   aspect-ratio: 1;
@@ -131,9 +133,30 @@ button.action:hover, select:hover { border-color: var(--accent); }
 }
 .meta { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; margin-top: 8px; }
 
-.visits { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-top: 10px; align-items: end; height: 44px; }
+.visits { display: grid; gap: 4px; margin-top: 10px; align-items: end; height: 44px; }
 .visit { background: var(--accent); border-radius: 3px 3px 0 0; opacity: 0.75; min-height: 2px; }
 .visit.best { opacity: 1; }
 
 footer { color: var(--muted); font-size: 12px; margin-top: 20px; text-align: center; }
 footer a { color: inherit; }
+
+/* Reversi: square cells on a felt grid, with legal squares hinted.
+   The disc rules repeat the .squares prefix on purpose: '.squares .cell' and
+   '.cell.you' have equal specificity, so without it the later rule would win and
+   every disc would render as an empty square. */
+.squares .cell { border-radius: 4px; background: color-mix(in srgb, var(--board) 70%, black); }
+.squares .cell.you { background: var(--you); border-radius: 50%; }
+.squares .cell.engine { background: var(--engine); border-radius: 50%; }
+.squares .cell.hint::after {
+  content: "";
+  position: absolute;
+  inset: 34%;
+  border-radius: 50%;
+  background: var(--you);
+  opacity: 0.35;
+}
+/* `.squares` sits on the board element itself, not on a descendant, so this
+   has to be `.board.squares` - `.board .squares` would never match. */
+.board.squares:not(.locked) .cell.playable:hover { transform: none; }
+.meta.score { font-size: 14px; color: var(--ink); align-items: center; gap: 4px; justify-content: flex-start; margin: 0 0 10px; }
+.meta.score .dot { display: inline-block; }

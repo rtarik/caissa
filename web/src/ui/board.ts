@@ -1,43 +1,51 @@
-import { COLS, ROWS } from "../games/connect4";
+import type { Game } from "../games/types";
 
 /** 0 empty, 1 the player who moved first, 2 the player who moved second. */
 export type Grid = Uint8Array;
 
 /**
- * Rebuild the visible board from the move list.
+ * The board as a viewer sees it, with colours fixed.
  *
- * Kept separate from the canonical board the engine uses. That one flips sign
- * every ply so the network always sees itself as +1, which is exactly what a
- * display must *not* do - the colours have to stay where the player put them.
- * Deriving the view from the move list keeps the two representations from being
- * confused for one another.
+ * The engine's board flips sign every ply so the network always sees itself as
+ * +1, which is exactly what a display must not do. Ply parity says who the mover
+ * currently is, and that turns the canonical board back into stable colours.
+ *
+ * Derived rather than tracked, which matters in Reversi: discs change owner, so
+ * a view built by remembering where each piece was placed would be wrong from
+ * the first capture.
  */
-export function gridFromMoves(moves: number[]): Grid {
-  const grid = new Uint8Array(ROWS * COLS);
-  const heights = new Array<number>(COLS).fill(0);
-  moves.forEach((col, i) => {
-    const row = ROWS - 1 - heights[col];
-    heights[col] += 1;
-    grid[row * COLS + col] = ((i % 2) + 1) as 1 | 2;
-  });
+export function absoluteGrid<S>(game: Game<S>, state: S, ply: number): Grid {
+  const [height, width] = game.boardShape;
+  const encoded = game.encode(state);
+  const squares = height * width;
+
+  const mover = ply % 2 === 0 ? 1 : 2;
+  const opponent = 3 - mover;
+
+  const grid = new Uint8Array(squares);
+  for (let i = 0; i < squares; i++) {
+    if (encoded[i] === 1) grid[i] = mover;
+    else if (encoded[squares + i] === 1) grid[i] = opponent;
+  }
   return grid;
 }
 
-/** The four cells of the winning line, if the last move made one. */
-export function winningLine(grid: Grid, lastMove: number | null): number[] | null {
+/** The four-in-a-row through the last move, for highlighting. Connect 4 only. */
+export function winningLine(grid: Grid, width: number, height: number,
+                            lastMove: number | null): number[] | null {
   if (lastMove === null) return null;
   const player = grid[lastMove];
   if (player === 0) return null;
 
-  const row = Math.floor(lastMove / COLS);
-  const col = lastMove % COLS;
+  const row = Math.floor(lastMove / width);
+  const col = lastMove % width;
   for (const [dRow, dCol] of [[0, 1], [1, 0], [1, 1], [1, -1]] as const) {
     const line = [lastMove];
     for (const sign of [1, -1]) {
       let r = row + dRow * sign;
       let c = col + dCol * sign;
-      while (r >= 0 && r < ROWS && c >= 0 && c < COLS && grid[r * COLS + c] === player) {
-        line.push(r * COLS + c);
+      while (r >= 0 && r < height && c >= 0 && c < width && grid[r * width + c] === player) {
+        line.push(r * width + c);
         r += dRow * sign;
         c += dCol * sign;
       }
@@ -47,13 +55,14 @@ export function winningLine(grid: Grid, lastMove: number | null): number[] | nul
   return null;
 }
 
-export function lastMoveIndex(moves: number[]): number | null {
+/** Where the last Connect 4 drop landed, for the move marker. */
+export function connect4LastMove(moves: number[], width: number, height: number): number | null {
   if (moves.length === 0) return null;
-  const heights = new Array<number>(COLS).fill(0);
+  const heights = new Array<number>(width).fill(0);
   let index = 0;
-  moves.forEach((col) => {
-    index = (ROWS - 1 - heights[col]) * COLS + col;
+  for (const col of moves) {
+    index = (height - 1 - heights[col]) * width + col;
     heights[col] += 1;
-  });
+  }
   return index;
 }

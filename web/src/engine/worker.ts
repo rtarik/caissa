@@ -10,12 +10,13 @@
  * Sending a position would mean two copies of the game state that have to agree,
  * and the bug where they stop agreeing is silent.
  */
-import { Connect4 } from "../games/connect4";
+import { createGame } from "../games/registry";
 import { MCTS, argmax, DEFAULT_SEARCH } from "./mcts";
 import { NetworkEvaluator } from "./onnx";
+import type { Game } from "../games/types";
 import type { FromEngine, ToEngine } from "./protocol";
 
-const game = new Connect4();
+let game: Game<unknown> | null = null;
 let evaluator: NetworkEvaluator<unknown> | null = null;
 
 function post(message: FromEngine): void {
@@ -27,8 +28,12 @@ self.onmessage = async (event: MessageEvent<ToEngine>) => {
   try {
     if (message.kind === "load") {
       evaluator = await NetworkEvaluator.load(message.model, message.manifest);
+      // The manifest names the game, so the page and the engine cannot disagree
+      // about which rules are in force.
+      game = createGame(evaluator.info.game);
       post({
         kind: "ready",
+        game: evaluator.info.game,
         generation: evaluator.info.generation,
         parameters: evaluator.info.parameters,
       });
@@ -36,7 +41,7 @@ self.onmessage = async (event: MessageEvent<ToEngine>) => {
     }
 
     if (message.kind === "move") {
-      if (!evaluator) throw new Error("engine asked to move before the model loaded");
+      if (!evaluator || !game) throw new Error("engine asked to move before the model loaded");
 
       let state = game.initialState();
       for (const move of message.moves) state = game.apply(state, move);

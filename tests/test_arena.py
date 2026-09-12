@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -272,3 +274,43 @@ def test_significance_tracks_the_interval():
     marginal = MatchResult("a", "b", wins=11, draws=0, losses=9)
     assert not marginal.significant
     assert "(not significant)" in marginal.summary()
+
+
+def test_a_clean_sweep_reports_a_bound_not_a_certainty():
+    """40-0 is strong evidence, but not evidence of infinite strength.
+
+    With every game going the same way the sample variance is zero, and a normal
+    approximation would collapse the interval to a point - printing a clamped
+    +3600 Elo as though it were measured. The rule of three gives the honest
+    reading: zero losses in n games puts the 95% bound on losing at 3/n.
+    """
+    sweep = MatchResult("new", "old", wins=40, draws=0, losses=0)
+    low, high = sweep.interval
+
+    assert math.isinf(high)
+    assert 300 < low < 600, f"unexpected lower bound {low}"
+    assert sweep.significant
+    assert ">" in sweep.summary()
+    assert "3600" not in sweep.summary()
+
+
+def test_a_whitewash_the_other_way_is_bounded_above():
+    rout = MatchResult("new", "old", wins=0, draws=0, losses=40)
+    low, high = rout.interval
+    assert math.isinf(low)
+    assert -600 < high < -300
+    assert "<" in rout.summary()
+
+
+def test_more_games_tighten_a_clean_sweep():
+    """The bound is evidence, so it should strengthen with the sample."""
+    small = MatchResult("a", "b", wins=20, draws=0, losses=0).interval[0]
+    large = MatchResult("a", "b", wins=400, draws=0, losses=0).interval[0]
+    assert large > small
+
+
+def test_an_all_draw_match_is_not_reported_as_certainty():
+    drawn = MatchResult("a", "b", wins=0, draws=40, losses=0)
+    low, high = drawn.interval
+    assert low < 0 < high, "an interval of zero width would claim exact equality"
+    assert math.isfinite(low) and math.isfinite(high)

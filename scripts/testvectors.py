@@ -31,10 +31,12 @@ def main() -> None:
     parser.add_argument("--game", default="connect4", choices=sorted(GAMES))
     parser.add_argument("--cases", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out", type=Path, default=Path("web/test/vectors.json"))
+    parser.add_argument("--out", type=Path, default=None,
+                        help="defaults to web/test/<game>-vectors.json")
     args = parser.parse_args()
 
     game = GAMES[args.game]()
+    out = args.out or Path(f"web/test/{game.name}-vectors.json")
     rng = np.random.default_rng(args.seed)
     cases = []
     terminal_cases = 0
@@ -92,8 +94,8 @@ def main() -> None:
                        for a in range(game.action_size)],
             "rootValue": root.value(),
         })
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps({
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({
         "game": game.name,
         "boardShape": list(game.board_shape),
         "inputPlanes": game.input_planes,
@@ -103,8 +105,8 @@ def main() -> None:
     }) + "\n")
 
     decided = sum(1 for c in cases if c["terminal"] is not None)
-    print(f"{len(cases)} cases and {len(searches)} searches -> {args.out} "
-          f"({args.out.stat().st_size / 1024:.0f} KB, {decided} finished positions)")
+    print(f"{len(cases)} cases and {len(searches)} searches -> {out} "
+          f"({out.stat().st_size / 1024:.0f} KB, {decided} finished positions)")
 
 
 if __name__ == "__main__":

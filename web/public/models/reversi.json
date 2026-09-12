@@ -1,0 +1,12 @@
+{
+  "game": "reversi",
+  "inputPlanes": 2,
+  "boardShape": [
+    8,
+    8
+  ],
+  "actionSize": 65,
+  "parameters": 498834,
+  "generation": 30,
+  "simulations": 200
+}

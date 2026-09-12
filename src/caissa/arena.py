@@ -89,8 +89,21 @@ class MatchResult:
         # Variance of the per-game score, from the win/draw/loss counts.
         squares = self.wins * 1.0 + self.draws * 0.25
         variance = squares / n - mean * mean
+
         if variance <= 0 or n < 2:
-            return (elo_difference(mean), elo_difference(mean))
+            # Every game went the same way, so the normal approximation has no
+            # spread to work with and would collapse the interval to a point -
+            # reporting a clean sweep as certainty. The rule of three gives the
+            # honest version: zero events in n trials puts the 95% bound on their
+            # probability at 3/n, so a 40-0 result means "at least ~440 Elo", not
+            # "infinitely strong".
+            margin = 3.0 / n
+            if mean >= 1.0:
+                return (elo_difference(1.0 - margin), math.inf)
+            if mean <= 0.0:
+                return (-math.inf, elo_difference(margin))
+            return (elo_difference(0.5 - margin / 2), elo_difference(0.5 + margin / 2))
+
         error = 1.96 * math.sqrt(variance / (n - 1))
         return (
             elo_difference(min(max(mean - error, 1e-9), 1 - 1e-9)),
@@ -111,10 +124,17 @@ class MatchResult:
     def summary(self) -> str:
         low, high = self.interval
         mark = "" if self.significant else "  (not significant)"
+        # A one-sided bound is written as such rather than as a huge number: a
+        # clean sweep says "at least this much", not "exactly this much".
+        if math.isinf(high):
+            estimate = f">{low:+.0f} Elo"
+        elif math.isinf(low):
+            estimate = f"<{high:+.0f} Elo"
+        else:
+            estimate = f"{self.elo:+.0f} Elo [{low:+.0f}, {high:+.0f}]"
         return (f"{self.player} vs {self.opponent}: "
                 f"+{self.wins} ={self.draws} -{self.losses} "
-                f"({self.score:.1%}, {self.elo:+.0f} Elo "
-                f"[{low:+.0f}, {high:+.0f}]){mark}")
+                f"({self.score:.1%}, {estimate}){mark}")
 
 
 def elo_difference(score: float) -> float:

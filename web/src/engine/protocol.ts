@@ -5,6 +5,6 @@ export type ToEngine =
   | { kind: "move"; moves: number[]; simulations: number };
 
 export type FromEngine =
-  | { kind: "ready"; generation?: number; parameters: number }
+  | { kind: "ready"; game: string; generation?: number; parameters: number }
   | { kind: "move"; action: number; value: number; visits: number[]; ms: number }
   | { kind: "error"; message: string };

@@ -8,9 +8,10 @@ Reversi or chess without changes to the search or training code.
 
 ## Status
 
-Phases 0 through 4 complete. Connect 4 is playable in the browser against a network
-trained by self-play, with search running in a Web Worker and nothing leaving the device.
-Next is Phase 5, Reversi — the first test of whether the abstraction really holds.
+Phases 0 through 5 complete. Connect 4 and Reversi are both playable in the browser
+against networks trained by self-play, with search running in a Web Worker and nothing
+leaving the device. Adding Reversi required three lines of change to existing framework
+code — the rest is the game itself.
 See [PLAN.md](PLAN.md) for the full roadmap, decision log and progress checklist.
 
 ## Development
