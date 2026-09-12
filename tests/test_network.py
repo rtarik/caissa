@@ -248,3 +248,25 @@ def test_network_and_uniform_evaluators_are_interchangeable(game, net):
                     rng=np.random.default_rng(1))
         policy, _ = mcts.run(state, temperature=0.0)
         assert policy.argmax() == 0, f"{type(evaluator).__name__} missed the block"
+
+
+def test_eval_mode_is_reasserted_on_every_call(game, net):
+    """Training mode can be switched on *after* the evaluator was built.
+
+    The evaluator holds a reference to the network, and the training step puts
+    that same object back into training mode. Checking eval() only at
+    construction would leave the very sequence that occurs in the real loop -
+    build evaluator, train, play - unprotected.
+    """
+    evaluator = NetworkEvaluator(net)
+    net.train()  # as a training step leaves it
+
+    norms = [m for m in net.modules() if isinstance(m, nn.BatchNorm2d)]
+    before = [(m.running_mean.clone(), m.running_var.clone()) for m in norms]
+
+    evaluator.evaluate(game, play(game, 3, 3))
+
+    assert not net.training
+    for module, (mean, var) in zip(norms, before):
+        assert torch.equal(module.running_mean, mean)
+        assert torch.equal(module.running_var, var)

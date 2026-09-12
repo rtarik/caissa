@@ -190,6 +190,14 @@ class NetworkEvaluator:
 
     @torch.no_grad()
     def evaluate(self, game, state) -> tuple[np.ndarray, float]:
+        # Asserted on every call, not just at construction. The evaluator holds a
+        # *reference* to the network, and the training step puts that same object
+        # back into training mode. Without this line, the first self-play game
+        # after the first gradient step would begin quietly corrupting the
+        # batch-norm statistics - a bug that only appears once self-play and
+        # training share a network, which is to say, in the real loop and never
+        # in a unit test of either half alone.
+        self.net.eval()
         encoded = torch.from_numpy(game.encode(state)).unsqueeze(0).to(self.device)
         logits, value = self.net(encoded)
 

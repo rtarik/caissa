@@ -162,13 +162,28 @@ because a score-based outcome breaks the usual win/loss value target.
 - [x] Tests (`tests/test_network.py`), 14 tests, mutation-verified against five
       deliberate bugs
 
-### Phase 2 — Self-play and training
+### Phase 2a — Self-play and training — **done**
 
-- [ ] Self-play game generation, storing (position, visit distribution, outcome)
-- [ ] Replay buffer
-- [ ] Training step: cross-entropy on policy, MSE on value
-- [ ] Symmetry augmentation wired in
-- [ ] Checkpointing
+- [x] Self-play generation (`src/caissa/selfplay.py`), storing (position, visit
+      distribution, final outcome) with mover-relative value targets
+- [x] Replay buffer (`src/caissa/replay.py`) — a sliding window over recent play
+- [x] Training step (`src/caissa/train.py`) — cross-entropy on the policy against search's
+      full visit distribution, squared error on the value, L2 through the optimiser
+- [x] Symmetry augmentation wired in
+- [x] The loop and checkpointing (`src/caissa/learn.py`), optimiser state included
+- [x] Training entry point (`scripts/train.py`) with validated tactical probes
+- [x] Tests, 81 in total, mutation-verified against eight deliberate bugs
+
+### Phase 2b — Parallel self-play
+
+Sequential self-play leaves the GPU ~95% idle. Batched evaluation is 426x faster than
+single-position evaluation (see *Measured facts*), so this is the difference between a
+few thousand and a few hundred thousand games per weekend.
+
+- [ ] Run many games concurrently, evaluating their leaves in one batch
+- [ ] Or: multiprocess across the 10 performance cores, each worker sequential
+- [ ] Validate the fast path against the sequential one — identical seeds, identical games
+- [ ] Re-measure and move training to the GPU once self-play stops dominating
 
 ### Phase 3 — Evaluation and gating
 
@@ -200,6 +215,47 @@ because a score-based outcome breaks the usual win/loss value target.
 - [ ] Self-play RL starting from the bootstrapped network
 - [ ] Rust MCTS (`shakmaty`) for ~10× throughput, shared between training and browser
 - [ ] Ship two personalities: the human-like bootstrap and the RL-strengthened network
+
+---
+
+## Results
+
+### Connect 4, first training run (14 iterations, 35 games each, 50 simulations)
+
+352 k parameter network, ~16 minutes on the M4 Max, 490 games and 21 k augmented positions.
+
+**It learns.** Measured head to head, alternating who moves first:
+
+| Matchup | Result |
+|---|---|
+| Trained vs untrained, policy only (100 games) | **81%** |
+| Trained vs uniform evaluator, policy only (100 games) | **83%** |
+| Trained vs untrained, 50 simulations (30 games) | **75%** |
+
+**But weakly, and the loss curve said nothing useful about it.** Training loss fell cleanly
+from 2.02 to 0.99 across the run while the tactical probes did not improve at all — "win in
+one" ended at 0.12, no better than the untrained 0.14. Measured on the network's own
+self-play distribution:
+
+| | |
+|---|---|
+| Value head, sign agreement on decisive positions | 72% (76% within 3 plies of the end) |
+| Policy head, agrees with search's top move | 71% |
+| Policy cross-entropy on fresh data | 1.41, against a target-entropy floor of 0.41 |
+
+That last row is the most informative: the network is badly *underfitting its own training
+targets*, which points at data volume rather than at a defect. 490 games is on the order of
+half a percent of what an AlphaZero-style Connect 4 run normally needs.
+
+**The probe was a bad yardstick and should not be trusted.** The probe positions hold 5–7
+pieces where self-play positions average 11.8, and the nearest self-play position differs
+in 5+ squares — they are off-distribution. They also score the *raw network*, when search
+is what actually plays: search with the trained network gets all three probes right. Phase
+3's arena replaces this.
+
+Three things to fix, in order: Phase 2b for the data volume, Phase 3 for the measurement,
+and only then any tuning. Nothing here suggests an implementation bug — the head-to-head
+result rules that out, and every component is mutation-tested.
 
 ---
 
@@ -292,6 +348,58 @@ not a substitute for the AlphaZero paper.
   GPU evaluation is 426x faster than single-position GPU evaluation. Self-play has to run
   many games concurrently and evaluate their leaves together, which shapes how Phase 2 is
   written rather than being something to add afterwards.
+
+### Phase 2
+
+- **Monte Carlo returns, not bootstrapping** — the value target is the *actual final
+  result* of the game, applied back to every position in it, rather than `reward + V(s')`.
+  Bootstrapping is low-variance but biased, and inherits whatever the network currently
+  gets wrong, so those errors can circulate and reinforce. The final outcome is unbiased
+  but noisy, since one late blunder relabels every earlier position. AlphaZero takes the
+  unbiased target and drowns the variance in volume, because search already supplies the
+  lookahead that bootstrapping would otherwise provide.
+- **The value target alternates** — the outcome is recorded from the perspective of
+  whoever was to move in each position, so the label flips sign along the game. Same
+  convention and same failure mode as the search backup.
+- **The replay buffer solves two problems** — *correlation*, since successive positions in
+  a game differ by one piece and a batch drawn from a contiguous run is one position
+  repeated; and *non-stationarity*, which has no supervised-learning equivalent: the data
+  is produced by the network being trained, so the distribution moves as the network
+  moves. Window size is a real trade-off — too small is unstable and forgetful, too large
+  trains on data from noticeably weaker versions of the network.
+- **Soft policy targets** — the label is search's whole visit distribution, not its argmax.
+  A one-hot label would discard everything search learned about the alternatives,
+  including how close the decision was. Consequence to expect: cross-entropy against a
+  soft target bottoms out at the *entropy of the target*, not at zero, so a policy loss
+  settling near 1.0 for a seven-action game is at the floor, not stalled.
+- **Duplicate positions make the value head learn expectations** — the same opening appears
+  in many games with different results, so no function can fit them all and it converges
+  to their mean. That is the desired behaviour: the value head should predict the expected
+  outcome, not memorise individual games.
+- **The train/eval coupling bug** — `train_step` leaves the network in training mode, and
+  the evaluator holds a *reference* to that same object. Without re-asserting `eval()` on
+  every call, the first self-play game after the first gradient step begins corrupting the
+  batch-norm running statistics. Neither a test of self-play alone nor of training alone
+  can catch it; it is created by their interaction.
+- **Validate your yardstick before you trust it** — the first tactical probe written for
+  this project had *no* correct answer, because an opponent three-in-a-row with both ends
+  open is a double threat. A measurement that has not been checked is not a measurement,
+  and in reinforcement learning the yardstick is often the only thing standing between you
+  and a confident, wrong conclusion.
+- **A falling loss is not evidence of learning** — observed directly in the first training
+  run: loss fell from 2.02 to 0.99 while tactical ability did not move at all. The loss
+  measures agreement with targets the system generated itself, so it can fall while the
+  targets stay weak. Only an outside measurement — head to head against another opponent —
+  answered the question, and it took three different diagnostics before the picture was
+  clear.
+- **Check the yardstick is on-distribution too** — the probes were not merely unvalidated
+  in the earlier sense; they held 5–7 pieces where self-play positions average 11.8. A
+  network can be genuinely competent on the positions it meets and hopeless on positions
+  drawn from nowhere near them.
+- **Underfitting its own targets is the diagnostic that pointed at data** — a policy
+  cross-entropy of 1.41 against a 0.41 floor says the network cannot yet reproduce what its
+  own search found. That is a volume problem, not a correctness problem, and it is what
+  separates "needs more games" from "needs debugging".
 
 ---
 
