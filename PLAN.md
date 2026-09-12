@@ -130,16 +130,20 @@ because a score-based outcome breaks the usual win/loss value target.
 - [x] Mutation-tested: deliberately breaking the canonical flip fails 8 tests; breaking the
       policy permutation fails the symmetry test. The suite is known to be load-bearing.
 
-### Phase 1 — Network and MCTS
+### Phase 1 — Network and MCTS — *in progress*
 
+- [x] `Evaluator` protocol (`src/caissa/evaluator.py`) separating search from knowledge,
+      plus `UniformEvaluator` for knowledge-free testing
+- [x] MCTS with PUCT selection, priors, and sign-alternating value backup
+      (`src/caissa/mcts.py`)
+- [x] Dirichlet noise at the root
+- [x] Temperature-based action selection
+- [x] Tests (`tests/test_mcts.py`), 17 tests, mutation-verified against seven
+      deliberate bugs including both value-sign inversions
 - [ ] Policy + value residual network, game-configurable (input planes, board shape,
       action space). Convolutional policy head where the action space maps to board
       squares; dense head otherwise (Connect 4's 7 columns do not map to its 42 cells).
-- [ ] MCTS with PUCT selection, network priors, value backup
-- [ ] Dirichlet noise at the root
-- [ ] Temperature-based action selection
-- [ ] Tests: search with a perfect oracle network must find forced wins; visit
-      distributions must concentrate on good moves as simulation count rises
+- [ ] `NetworkEvaluator` wrapping the network behind the `Evaluator` protocol
 
 ### Phase 2 — Self-play and training
 
@@ -216,6 +220,37 @@ not a substitute for the AlphaZero paper.
   what the rules already say.
 - **Symmetry augmentation** — exploiting board symmetries to multiply training data. A
   large sample-efficiency win when data is expensive to generate, as self-play data is.
+
+### Phase 1
+
+- **Policy improvement operator** — the central idea of AlphaZero. Search takes the
+  network's mediocre priors and, by spending simulations, produces a *better* move
+  distribution. Training then compresses that improvement back into the weights, and the
+  loop repeats. Everything else is machinery around this one step.
+- **PUCT** — the selection rule, `Q(a) + c_puct · P(a) · √N_parent / (1 + N(a))`. The first
+  term exploits what search has learned, the second explores what the network recommends
+  but the search has not yet examined. The `1 + N(a)` denominator makes the optimism decay
+  as a move gets a fair hearing.
+- **Visit counts as the training target** — the policy label is the distribution of
+  *visits*, not the network's own priors and not the Q values. A move earns visits only by
+  repeatedly winning the PUCT argument, so visits aggregate all the evidence, whereas a Q
+  value can rest on a single lucky simulation.
+- **Sign-alternating backup** — a simulation's result is pushed up the path with its sign
+  flipped at every ply, because a result good for one player is bad for their opponent.
+  This is the direct consequence of the mover-relative value convention, and inverting it
+  produces an agent that trains smoothly toward losing.
+- **Dirichlet noise at the root** — random perturbation of the root priors, forcing the
+  agent to try moves it currently dislikes. Without it the loop is self-reinforcing: the
+  network proposes, search explores only what was proposed, training makes the proposal
+  stronger, and a dismissed move is never reconsidered. Applied at the root only, since the
+  aim is to vary the games played rather than to corrupt evaluation inside a line.
+- **Temperature** — `pi(a) ∝ N(a)^(1/T)`. At `T=1`, play proportionally to visits, keeping
+  self-play varied so the network sees a wide spread of positions. At `T→0`, play greedily,
+  which is how to compete rather than learn. Usually `T=1` for the opening moves, then 0.
+- **Separating search from knowledge** — the `Evaluator` protocol means search can be
+  tested with no network at all. This keeps "the search is broken" distinguishable from
+  "the network is untrained", which is the single most valuable diagnosis to be able to
+  make while building a reinforcement learner.
 
 ---
 
