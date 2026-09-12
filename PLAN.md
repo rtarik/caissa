@@ -250,14 +250,48 @@ Ply 18–22 is the working window: fast, and ~60% of random positions there stil
 wrong answer available. Deeper positions are mostly already decided — at ply 24–30, nine
 sampled positions in twelve had no mistake to make.
 
-### Phase 4 — Browser, Connect 4 playable
+### Phase 4 — Browser, Connect 4 playable — **done**
 
-- [ ] ONNX export
-- [ ] `onnxruntime-web` inference in a Web Worker
-- [ ] TypeScript game rules, validated against Python-generated test vectors
-- [ ] Game-agnostic board UI (Vite + TypeScript)
-- [ ] Point `.github/workflows/deploy.yml` at the build output rather than the repo root
-- [ ] Deployed and playable on desktop and mobile
+- [x] ONNX export (`src/caissa/export.py`, `scripts/export.py`), verified against PyTorch
+      on probabilities and best moves before it is allowed to ship
+- [x] `onnxruntime-web` in a Web Worker (`web/src/engine/`), single-threaded
+- [x] TypeScript rules (`web/src/games/connect4.ts`) validated against 250
+      Python-generated vectors — legal moves, terminal values and encodings
+- [x] TypeScript MCTS (`web/src/engine/mcts.ts`) validated against Python's **exact visit
+      counts** on 40 searches
+- [x] Board UI with engine evaluation and visit distribution (`web/src/main.ts`)
+- [x] `.github/workflows/deploy.yml` builds `web/`, typechecks, runs the tests and
+      publishes `web/dist`
+- [x] Verified playing in the browser, desktop and mobile viewports
+- [x] Tests: 154 Python, 21 TypeScript, mutation-verified
+
+**Sizes.** 13.3 MB of WebAssembly (3.4 MB gzipped, which is what Pages serves) plus a
+1.3 MB model — about 4.6 MB on a cold visit, so roughly 21,000 visits a month inside the
+bandwidth allowance, and cached afterwards. onnxruntime-web ships four WASM builds totalling
+80 MB; only the plain CPU one is needed, and Vite emits exactly that.
+
+**Speed.** 200 simulations in ~160 ms in the browser. Fast enough that the "Careful" setting
+at 600 simulations is still comfortable.
+
+**The header constraint from the very first planning session finally bit.** Multi-threaded
+WASM needs `SharedArrayBuffer`, which needs COOP and COEP response headers, which GitHub
+Pages will not set. `numThreads` is therefore pinned to 1 explicitly rather than left to
+fall back silently — the symptom of the silent version is only an engine that thinks more
+slowly than expected.
+
+### Phase 4b — Observed in play
+
+The browser engine blocks threats correctly and reports honest evaluations, but its opening
+is weak — it answered 1.d4 (centre) with a move to the edge column and then scored itself at
+30%, which is both bad play and an accurate self-assessment.
+
+That lines up exactly with the Phase 3 caveat. The solver could only grade positions from
+ply 16 onward, where it scored 86.9% at 50 simulations. The opening is the part that was
+never measured, and it is visibly the weakest part of its game.
+
+- [ ] Opening book or deeper search at low ply, or simply more training
+- [ ] A faster solver (Rust, or a precomputed opening table) would let the opening be
+      measured rather than guessed at
 
 ### Phase 5 — Reversi
 
@@ -572,6 +606,32 @@ not a substitute for the AlphaZero paper.
 - **I nearly published noise as a finding** — a 124-position comparison said the network
   made search 5.7 points worse. A paired test on 237 positions put them exactly level. The
   discipline this whole phase is about caught an error made while building it.
+
+### Phase 4
+
+- **A port is only trustworthy if it is proved identical** — MCTS with a uniform evaluator
+  and no root noise is fully deterministic, so the TypeScript search can be checked against
+  Python's exact visit counts rather than "looks about right". The algorithm has two
+  separate sign flips, a specific tie-breaking order and a root expanded before the loop;
+  none of that survives being reimplemented from memory.
+- **Rules duplicated across languages need a mechanical check** — 250 generated vectors
+  covering legal moves, terminal values and encodings. The encodings matter most: a board
+  encoded differently in the browser feeds the network inputs it was never trained on,
+  while still producing legal, plausible-looking moves.
+- **Choose the quantity before the tolerance** — comparing raw logits rejected a perfectly
+  good export, because scaled-up weights put them in the hundreds of thousands where a
+  difference of 22 is ordinary floating point. What the system consumes is the masked
+  softmax, and on that the agreement was exact. The wrong quantity makes any tolerance
+  meaningless.
+- **Watch for a comparison that cannot fail** — `tanh` saturation made the value check pass
+  by being blind, and a verifier comparing PyTorch to itself passed every test in the file.
+  Both now have tests that fail when the check stops checking.
+- **The canonical board is not the display board** — the engine's representation flips sign
+  every ply so the network always sees itself as +1, which is exactly what a UI must not
+  do. The view is derived from the move list instead, so the two cannot be confused.
+- **Send the move list, not the position** — the worker replays from scratch. Sending a
+  board would mean two copies of the game state that have to agree, and the bug where they
+  stop agreeing is silent.
 
 ---
 

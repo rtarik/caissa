@@ -8,10 +8,9 @@ Reversi or chess without changes to the search or training code.
 
 ## Status
 
-Phases 0 through 3 complete: the `Game` contract and Connect 4, MCTS with PUCT, the
-policy/value network, the self-play and training loop, parallel self-play (27x faster per
-game), and evaluation — an arena with Elo and confidence intervals, plus a perfect solver
-to grade against. Next is Phase 4, the browser.
+Phases 0 through 4 complete. Connect 4 is playable in the browser against a network
+trained by self-play, with search running in a Web Worker and nothing leaving the device.
+Next is Phase 5, Reversi — the first test of whether the abstraction really holds.
 See [PLAN.md](PLAN.md) for the full roadmap, decision log and progress checklist.
 
 ## Development
@@ -36,3 +35,19 @@ Measure a checkpoint against perfect play, or against another checkpoint:
 ```bash
 .venv/bin/python scripts/accuracy.py models/connect4-latest.pt --positions 200
 ```
+
+## The web app
+
+Export a checkpoint, regenerate the cross-language test vectors, then run it:
+
+```bash
+.venv/bin/python scripts/export.py models/connect4-latest.pt && .venv/bin/python scripts/testvectors.py
+```
+
+```bash
+cd web && npm install && npm test && npm run dev
+```
+
+`web/` is a Vite + TypeScript app. The rules and the search exist in TypeScript as well as
+Python, and both are checked against vectors generated from Python — the TypeScript search
+must reproduce Python's visit counts exactly.

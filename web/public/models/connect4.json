@@ -1,0 +1,12 @@
+{
+  "game": "connect4",
+  "inputPlanes": 2,
+  "boardShape": [
+    6,
+    7
+  ],
+  "actionSize": 7,
+  "parameters": 352536,
+  "generation": 40,
+  "simulations": 200
+}
