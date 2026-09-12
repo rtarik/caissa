@@ -8,9 +8,9 @@ Reversi or chess without changes to the search or training code.
 
 ## Status
 
-Phases 0, 1 and 2a complete: the `Game` contract and Connect 4, MCTS with PUCT, the
-policy/value network, and the self-play and training loop. Next is Phase 2b, parallel
-self-play, then Phase 3, evaluation and gating.
+Phases 0 through 2 complete: the `Game` contract and Connect 4, MCTS with PUCT, the
+policy/value network, the self-play and training loop, and parallel self-play (27x faster
+per game). Next is Phase 3, evaluation and gating.
 See [PLAN.md](PLAN.md) for the full roadmap, decision log and progress checklist.
 
 ## Development
@@ -24,5 +24,8 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 Train Connect 4:
 
 ```bash
-.venv/bin/python scripts/train.py --iterations 14 --games 35
+.venv/bin/python scripts/train.py --iterations 40 --games 250 --workers 10
 ```
+
+Self-play runs across worker processes on the CPU; the gradient steps run on the GPU. Any
+script that starts the pool must guard its entry point with `if __name__ == "__main__":`.

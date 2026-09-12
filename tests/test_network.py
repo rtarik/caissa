@@ -15,6 +15,7 @@ from caissa.network import (
     NetworkEvaluator,
     PolicyValueNet,
     ResidualBlock,
+    best_device,
 )
 
 
@@ -270,3 +271,33 @@ def test_eval_mode_is_reasserted_on_every_call(game, net):
     for module, (mean, var) in zip(norms, before):
         assert torch.equal(module.running_mean, mean)
         assert torch.equal(module.running_var, var)
+
+
+@pytest.mark.skipif(
+    best_device().type == "cpu", reason="needs an accelerator to have somewhere to move from"
+)
+def test_evaluator_does_not_move_the_network(game):
+    """Constructing an evaluator must not relocate someone else's model.
+
+    ``Module.to()`` moves parameters *in place*. When the training network lives
+    on the GPU, an evaluator defaulting to CPU would drag it off the GPU the
+    first time anything evaluated a position - detaching it from the optimiser
+    state, which stays where it was. Nothing raises; training simply degrades.
+
+    The network has to start somewhere other than CPU for this to mean anything:
+    with a CPU fixture, "moves it to CPU" is a no-op and the test proves nothing.
+    """
+    net = PolicyValueNet.for_game(game, NetworkConfig(blocks=1, channels=8))
+    net.to(best_device())
+    device = next(net.parameters()).device
+    assert device.type != "cpu"
+
+    NetworkEvaluator(net)
+    assert next(net.parameters()).device == device
+
+
+def test_evaluator_moves_the_network_when_asked(game, net):
+    evaluator = NetworkEvaluator(net, torch.device("cpu"))
+    assert evaluator.device == torch.device("cpu")
+    priors, _ = evaluator.evaluate(game, game.initial_state())
+    assert priors.sum() == pytest.approx(1.0)

@@ -92,6 +92,10 @@ def main() -> None:
     parser.add_argument("--blocks", type=int, default=4)
     parser.add_argument("--channels", type=int, default=64)
     parser.add_argument("--buffer", type=int, default=60_000)
+    parser.add_argument("--workers", type=int, default=10,
+                        help="self-play processes; 1 runs in-process (easier to debug)")
+    parser.add_argument("--device", default=None,
+                        help="training device; default auto-detects (mps/cuda/cpu)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=Path("models"))
     args = parser.parse_args()
@@ -105,22 +109,23 @@ def main() -> None:
         games_per_iteration=args.games,
         train_steps_per_iteration=args.train_steps,
         buffer_capacity=args.buffer,
+        workers=args.workers,
+        train_device=args.device,
         network=NetworkConfig(blocks=args.blocks, channels=args.channels),
         mcts=MCTSConfig(simulations=args.simulations),
         selfplay=SelfPlayConfig(),
         train=TrainConfig(),
     )
-    learner = Learner(game, config, seed=args.seed)
+    with Learner(game, config, seed=args.seed) as learner:
+        print(f"{args.game}: {learner.net.parameter_count():,} parameters, "
+              f"{args.simulations} simulations per move, {args.workers} workers")
+        print(f"before       {probe(game, learner.cpu_net())}\n", flush=True)
 
-    print(f"{args.game}: {learner.net.parameter_count():,} parameters, "
-          f"{args.simulations} simulations per move")
-    print(f"before       {probe(game, learner.net)}\n", flush=True)
-
-    for _ in range(args.iterations):
-        stats = learner.run_iteration()
-        print(stats.summary(), flush=True)
-        print(f"             {probe(game, learner.net)}", flush=True)
-        learner.save(args.out / f"{args.game}-latest.pt")
+        for _ in range(args.iterations):
+            stats = learner.run_iteration()
+            print(stats.summary(), flush=True)
+            print(f"             {probe(game, learner.cpu_net())}", flush=True)
+            learner.save(args.out / f"{args.game}-latest.pt")
 
     print(f"\nsaved to {args.out / f'{args.game}-latest.pt'}")
 

@@ -155,3 +155,51 @@ def test_checkpoints_are_game_specific(game, tmp_path):
 
     with pytest.raises(ValueError, match="gomoku"):
         Learner(Impostor(), tiny()).load(path)
+
+
+# ----------------------------------------------------------------- devices
+
+
+def test_cpu_mirror_matches_the_training_network(game):
+    """Self-play runs on a CPU copy; it must hold the same weights.
+
+    Training is batched and belongs on the GPU; self-play evaluates one small
+    position at a time and belongs on the CPU. Keeping two copies is only safe
+    if the mirror actually tracks the original.
+    """
+    learner = Learner(game, tiny(), seed=0)
+    learner.run_iteration()  # move the weights away from their initial values
+
+    mirror = learner.cpu_net()
+    assert next(mirror.parameters()).device == torch.device("cpu")
+
+    original = learner.net.state_dict()
+    for key, tensor in mirror.state_dict().items():
+        assert torch.equal(tensor, original[key].detach().cpu()), f"{key} drifted"
+
+
+def test_training_network_stays_on_its_device(game):
+    """Taking the mirror must not relocate the network being trained."""
+    learner = Learner(game, tiny(), seed=0)
+    device = next(learner.net.parameters()).device
+    learner.cpu_net()
+    learner._mcts()
+    assert next(learner.net.parameters()).device == device
+
+
+def test_checkpoints_are_saved_on_cpu(game, tmp_path):
+    """So a checkpoint trained on a GPU can be loaded on a machine without one.
+
+    Loaded without ``map_location``, deliberately: passing it would force every
+    tensor to CPU on the way in and the assertion could never fail.
+    """
+    learner = Learner(game, tiny(), seed=0)
+    path = learner.save(tmp_path / "check.pt")
+    saved = torch.load(path, weights_only=False)
+    assert all(t.device == torch.device("cpu") for t in saved["network"].values())
+
+
+def test_explicit_cpu_device_shares_one_network(game):
+    """With training on CPU there is no second copy to keep in sync."""
+    learner = Learner(game, tiny(train_device="cpu"), seed=0)
+    assert learner.cpu_net() is learner.net

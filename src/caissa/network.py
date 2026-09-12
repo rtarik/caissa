@@ -177,8 +177,13 @@ class NetworkEvaluator:
     """
 
     def __init__(self, net: PolicyValueNet, device: torch.device | None = None):
-        self.device = device or torch.device("cpu")
-        self.net = net.to(self.device)
+        # Default to wherever the network already lives. `Module.to()` moves
+        # parameters *in place*, so a default of CPU would silently drag a
+        # training network off the GPU the moment anything evaluated a position
+        # with it - detaching it from its optimiser's state in the process.
+        # Moving someone else's model is not this class's business.
+        self.device = device or next(net.parameters()).device
+        self.net = net.to(self.device) if device is not None else net
         # Evaluation mode, always. In training mode the batch-normalisation
         # layers normalise using the statistics of whatever batch they are handed
         # - here a single position - instead of the running averages learned

@@ -18,3 +18,4 @@ packages = ["src/caissa"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["slow: spawns worker processes; slower to run"]

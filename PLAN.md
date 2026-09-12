@@ -174,23 +174,59 @@ because a score-based outcome breaks the usual win/loss value target.
 - [x] Training entry point (`scripts/train.py`) with validated tactical probes
 - [x] Tests, 81 in total, mutation-verified against eight deliberate bugs
 
-### Phase 2b — Parallel self-play
+### Phase 2b — Parallel self-play — **done**
 
-Sequential self-play leaves the GPU ~95% idle. Batched evaluation is 426x faster than
-single-position evaluation (see *Measured facts*), so this is the difference between a
-few thousand and a few hundred thousand games per weekend.
+- [x] Measured where the time actually goes before choosing: self-play is **98% network,
+      2% tree** (952 us per simulation, of which 24 are tree). Batching leaves across games
+      could therefore only ever reach the tree rate of ~42,000 evals/s — a 40x cap — so
+      multiprocessing whole games was taken instead. It lifts both halves and is simpler.
+- [x] `torch.set_num_threads(1)` per worker, worth **2.6x on its own**. PyTorch's intra-op
+      threading costs more than it saves on one 6x7 position, and unset, ten workers would
+      each try to use ten threads on ten cores.
+- [x] `ParallelSelfPlay` (`src/caissa/parallel.py`) — a reusable spawn pool, since starting
+      a process means importing torch afresh
+- [x] Guard against the fork bomb: starting a pool from inside a worker raises with an
+      explanation instead of taking the machine down
+- [x] Validated against the sequential path — N workers reproduce N sequential runs exactly,
+      in order, seed for seed
+- [x] Training moved to the GPU, with a CPU mirror for self-play
+- [x] Tests, 99 in total, mutation-verified
 
-- [ ] Run many games concurrently, evaluating their leaves in one batch
-- [ ] Or: multiprocess across the 10 performance cores, each worker sequential
-- [ ] Validate the fast path against the sequential one — identical seeds, identical games
-- [ ] Re-measure and move training to the GPU once self-play stops dominating
+**Results.** Benchmarked at 30 games, 50 simulations per move:
+
+| | games/s | games/hour |
+|---|---|---|
+| sequential, 10 torch threads (the original) | 0.82 | 2,950 |
+| sequential, 1 torch thread | 2.13 | 7,661 |
+| **parallel, 10 workers** | **17.47** | **62,907** |
+
+Peak is at exactly 10 workers — the performance-core count. 12 and 14 are *slower*: the
+extra workers land on efficiency cores, and every iteration waits for its slowest worker.
+
+**The bottleneck then moved.** Per iteration at 200 games, self-play fell from 72s to 11s
+while training stayed at 72s — 87% of the time, and it had been 5%. Training is batched, so
+the GPU is ~39x faster there (59,757 against 1,525 positions/s at batch 512; a 6x7
+convolution has too little arithmetic per byte for a CPU, and the backward pass is six times
+the forward). Moving it took the iteration from 82s to 14s, with self-play dominating again
+at 11.2s against 2.8s — which is the balance worth keeping.
+
+End to end: **27x faster per game than where Phase 2a left off.**
+
+### Phase 2c — Batched leaf evaluation (optional)
+
+Not needed yet, and the ceiling is known: batching removes only the network cost, leaving
+~42,000 evals/s of tree walking per process. Revisit only if self-play becomes dominant
+again at a scale where 10 processes are not enough.
 
 ### Phase 3 — Evaluation and gating
 
-- [ ] Arena: play two checkpoints against each other
+- [ ] Keep generational checkpoints, not a single overwritten file (see Results — run 1
+      is unrecoverable, so it cannot be played against run 2)
+- [ ] Arena: play two checkpoints against each other, alternating who moves first
 - [ ] Elo tracking across generations
 - [ ] Comparison against a perfect Connect 4 solver — the external yardstick
 - [ ] Gate: only promote a new network if it beats the incumbent by a margin
+- [ ] Replace the tactical probes, which have now twice proved misleading
 
 ### Phase 4 — Browser, Connect 4 playable
 
@@ -256,6 +292,35 @@ is what actually plays: search with the trained network gets all three probes ri
 Three things to fix, in order: Phase 2b for the data volume, Phase 3 for the measurement,
 and only then any tuning. Nothing here suggests an implementation bug — the head-to-head
 result rules that out, and every component is mutation-tested.
+
+### Connect 4, second run (40 iterations, 250 games each, 50 simulations)
+
+10,000 games — 20x the first run — in about 14 minutes, which Phase 2b made possible.
+
+| | run 1 (490 games) | run 2 (10,000 games) |
+|---|---|---|
+| Trained vs untrained, policy only | 81% | **97%** |
+| Trained vs uniform evaluator, policy only | 83% | **99%** |
+| Trained vs untrained, 50 simulations | 75% | **100%** |
+| Policy agrees with search's best move | 71% | **78%** |
+| Policy cross-entropy, gap to floor | 1.41 − 0.41 = 1.00 | **0.79 − 0.24 = 0.55** |
+| Value sign agreement (decisive positions) | 72% | 69% |
+| Value MSE vs predicting zero | 0.80 / 0.83 | 0.75 / 0.73 |
+
+**The diagnosis held.** The gap between the network and its own search targets halved, which
+is what "needs more data" was predicted to fix. Playing strength moved much further than the
+loss curve suggested it would — 100% against the untrained network with search.
+
+**The value head is the remaining weakness.** It extracts real signal (69% beats chance) but
+hedges its magnitudes, so its MSE barely improves on predicting zero everywhere. That is the
+rational response to a noisy label, and the label genuinely is noisy: self-play applies
+Dirichlet noise at every root and samples moves at temperature 1 for the first eight plies,
+so the same position can lead to either outcome. Whether 69% is near the ceiling for this
+data or a real shortfall is not answerable without comparing checkpoints — which is Phase 3.
+
+**Gap found: no checkpoint history.** `scripts/train.py` overwrites a single file, so run 1
+is gone and cannot be played against run 2. The arena needs generational checkpoints to
+measure against, so Phase 3 must add them.
 
 ---
 
@@ -400,6 +465,29 @@ not a substitute for the AlphaZero paper.
   cross-entropy of 1.41 against a 0.41 floor says the network cannot yet reproduce what its
   own search found. That is a volume problem, not a correctness problem, and it is what
   separates "needs more games" from "needs debugging".
+
+### Phase 2b
+
+- **Profile before optimising, even when the answer seems obvious** — the assumption here
+  was that tree walking cost about half of self-play. It cost 2%. The measurement inverted
+  the design decision, and turned up a free 2.6x nobody was looking for.
+- **More parallelism is not more throughput** — 10 workers beat 12 and 14, because the
+  extra processes run on efficiency cores and an iteration is only as fast as its slowest
+  worker. Scaling stops at the count of *fast* cores, not logical ones.
+- **Processes, not threads** — the GIL stops threads from running tree search concurrently.
+  The price is that everything crossing the boundary is pickled, which is why workers get a
+  state dict and rebuild the model rather than receiving a live one.
+- **A fast path must be provably identical to the slow one** — an optimisation that
+  silently changes the data shows up only as a training run that behaves worse for no
+  visible reason. The test asserts N workers reproduce N sequential runs exactly. It failed
+  first time because the *reference* was wrong: it used two random generators where the
+  worker shares one.
+- **The two halves want opposite hardware** — self-play evaluates one position at a time and
+  belongs on CPU; training is batched and belongs on the GPU. Keeping the network on the GPU
+  with a CPU mirror for play is what lets both have what they want.
+- **Fixing the bottleneck moves it** — self-play was 95% of the time, then 13%. Any change
+  large enough to be worth making invalidates the measurement that justified it, so measure
+  again afterwards rather than assuming the shape held.
 
 ---
 
