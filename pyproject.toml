@@ -3,7 +3,7 @@ name = "caissa"
 version = "0.1.0"
 description = "AlphaZero-style self-play reinforcement learning for board games, playable in the browser"
 requires-python = ">=3.12"
-dependencies = ["numpy>=2.0"]
+dependencies = ["numpy>=2.0", "torch>=2.4"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

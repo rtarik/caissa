@@ -16,11 +16,12 @@ Keeping that boundary explicit buys three things:
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 
 
+@runtime_checkable
 class Evaluator(Protocol):
     """Supplies priors and a position value to the search."""
 

@@ -8,8 +8,8 @@ Reversi or chess without changes to the search or training code.
 
 ## Status
 
-Phase 0 complete (the `Game` contract and Connect 4). Phase 1 in progress: MCTS is
-done and tested; the neural network is next.
+Phases 0 and 1 complete: the `Game` contract and Connect 4, MCTS with PUCT, and the
+policy/value network. Next is Phase 2, the self-play and training loop.
 See [PLAN.md](PLAN.md) for the full roadmap, decision log and progress checklist.
 
 ## Development

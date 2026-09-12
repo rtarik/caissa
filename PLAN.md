@@ -65,6 +65,19 @@ Three consequences:
   | Python, N workers + batched eval server | ~30–50 k/s | ~15,000 | ~600 k games |
   | Rust MCTS | ~80–120 k/s | ~35,000 | ~1.4 M games |
 
+**Single-position inference is the wrong shape entirely.** Measured with the default
+Connect 4 network (352 k parameters):
+
+| | CPU | MPS |
+|---|---|---|
+| Single position | **1,046/s** | 662/s |
+| Batch of 512 | 14,199/s | **281,835/s** |
+
+One position at a time is *faster on CPU* than on the GPU, because the round trip costs
+more than the work. But batching on the GPU is 426x faster than single positions on the
+GPU. Self-play must therefore run many games concurrently and evaluate their leaves in one
+batch; evaluating position by position leaves a factor of several hundred unclaimed.
+
 For scale: AlphaZero's chess run used **44 M games at 800 sims/move**, roughly 4.7×10¹²
 network evaluations. A weekend here buys well under 1% of that. This is the single most
 important number in the project, and it is why chess is bootstrapped from human games
@@ -130,7 +143,7 @@ because a score-based outcome breaks the usual win/loss value target.
 - [x] Mutation-tested: deliberately breaking the canonical flip fails 8 tests; breaking the
       policy permutation fails the symmetry test. The suite is known to be load-bearing.
 
-### Phase 1 — Network and MCTS — *in progress*
+### Phase 1 — Network and MCTS — **done**
 
 - [x] `Evaluator` protocol (`src/caissa/evaluator.py`) separating search from knowledge,
       plus `UniformEvaluator` for knowledge-free testing
@@ -140,10 +153,14 @@ because a score-based outcome breaks the usual win/loss value target.
 - [x] Temperature-based action selection
 - [x] Tests (`tests/test_mcts.py`), 17 tests, mutation-verified against seven
       deliberate bugs including both value-sign inversions
-- [ ] Policy + value residual network, game-configurable (input planes, board shape,
-      action space). Convolutional policy head where the action space maps to board
-      squares; dense head otherwise (Connect 4's 7 columns do not map to its 42 cells).
-- [ ] `NetworkEvaluator` wrapping the network behind the `Evaluator` protocol
+- [x] Policy + value residual network (`src/caissa/network.py`), game-configurable and
+      with no Connect 4 specifics. Dense policy head for now, since Connect 4's 7 columns
+      do not map onto its 42 cells; a convolutional head slots in for chess, where
+      4672 = 64 squares x 73 move types and the saving is ~16x in parameters.
+- [x] `NetworkEvaluator` wrapping the network behind the `Evaluator` protocol, forcing
+      `eval()` mode so search cannot corrupt the batch-norm running statistics
+- [x] Tests (`tests/test_network.py`), 14 tests, mutation-verified against five
+      deliberate bugs
 
 ### Phase 2 — Self-play and training
 
@@ -251,6 +268,30 @@ not a substitute for the AlphaZero paper.
   tested with no network at all. This keeps "the search is broken" distinguishable from
   "the network is untrained", which is the single most valuable diagnosis to be able to
   make while building a reinforcement learner.
+- **Shared trunk, two heads** — one representation serves both questions the agent asks of
+  a position, because "who is threatening what" underlies both "which move is good" and
+  "who is winning". Cheaper than learning it twice, and the two tasks regularise each
+  other: a shortcut that helps the value head usually hurts the policy head, so it does
+  not survive.
+- **Residual connections** — each block learns a *correction* to its input rather than a
+  replacement, so gradients reach the early layers and depth stops being a liability.
+  Verified directly: with the convolutions zeroed, a block must be the identity.
+- **Bounded value output** — `tanh` restricts the value head to `[-1, 1]`, exactly the
+  range of the thing being predicted. A network that cannot express an impossible value
+  does not need to spend capacity learning not to.
+- **The batch-norm evaluation trap** — in training mode, batch-norm normalises using the
+  current batch's statistics rather than the learned running averages, *and* updates those
+  averages as a side effect. Since search calls the network hundreds of times per move, a
+  missing `eval()` means playing the game silently corrupts the network. No error, no
+  obviously wrong output, just a strength collapse later.
+- **Loss choice determines whether gradient exists at all** — `logits.sum().backward()`
+  gives exactly zero gradient at the trunk of a batch-normalised network, because batch
+  norm makes its output invariant to shifts in its input. The real loss (cross-entropy on
+  the policy, squared error on the value) carries signal where a naive one carries none.
+- **Batching is not an optimisation, it is the architecture** — on this hardware, batched
+  GPU evaluation is 426x faster than single-position GPU evaluation. Self-play has to run
+  many games concurrently and evaluate their leaves together, which shapes how Phase 2 is
+  written rather than being something to add afterwards.
 
 ---
 
