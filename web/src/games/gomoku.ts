@@ -4,6 +4,17 @@ export const SIZE = 9;
 export const SQUARES = SIZE * SIZE;
 export const CONNECT = 5;
 
+/**
+ * Only empty points within this many squares of an existing stone are playable.
+ *
+ * Deliberate domain knowledge, mirroring `NEIGHBOURHOOD` in the Python rules.
+ * Without it a search over eighty near-identical empty points never reaches a
+ * terminal position - measured, twenty thousand simulations with no network
+ * return a value of exactly zero for every move - so neither search nor training
+ * has anything to learn from. See PLAN.md.
+ */
+export const NEIGHBOURHOOD = 1;
+
 /** Horizontal, vertical, and the two diagonals. */
 const DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
   [0, 1], [1, 0], [1, 1], [1, -1],
@@ -28,14 +39,41 @@ export class Gomoku implements Game<GomokuState> {
   }
 
   legalActions(state: GomokuState): boolean[] {
-    // Every empty intersection: free-style Gomoku, with none of the opening
-    // handicaps some rulesets add to curb the first player's advantage.
-    return Array.from(state.board, (value) => value === 0);
+    // Empty points near the existing stones. Free-style otherwise: none of the
+    // opening handicaps some rulesets add to curb the first player's advantage.
+    const legal = new Array<boolean>(SQUARES).fill(false);
+
+    let occupied = false;
+    for (const value of state.board) {
+      if (value !== 0) {
+        occupied = true;
+        break;
+      }
+    }
+    if (!occupied) {
+      // An empty board has no neighbourhood, and every opening is equivalent by
+      // symmetry, so the centre point is the whole of the opening book.
+      legal[Math.floor(SIZE / 2) * SIZE + Math.floor(SIZE / 2)] = true;
+      return legal;
+    }
+
+    for (let square = 0; square < SQUARES; square++) {
+      if (state.board[square] === 0) continue;
+      const row = Math.floor(square / SIZE);
+      const col = square % SIZE;
+      for (let r = row - NEIGHBOURHOOD; r <= row + NEIGHBOURHOOD; r++) {
+        for (let c = col - NEIGHBOURHOOD; c <= col + NEIGHBOURHOOD; c++) {
+          if (r < 0 || r >= SIZE || c < 0 || c >= SIZE) continue;
+          if (state.board[r * SIZE + c] === 0) legal[r * SIZE + c] = true;
+        }
+      }
+    }
+    return legal;
   }
 
   apply(state: GomokuState, action: number): GomokuState {
-    if (state.board[action] !== 0) {
-      throw new Error(`square ${action} is already occupied`);
+    if (!this.legalActions(state)[action]) {
+      throw new Error(`square ${action} is occupied or too far from the stones`);
     }
     const board = new Int8Array(state.board);
     board[action] = 1;

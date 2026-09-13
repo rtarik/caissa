@@ -57,6 +57,8 @@ def main() -> None:
     parser.add_argument("--gate-threshold", type=float, default=0.55)
     parser.add_argument("--checkpoint-every", type=int, default=5,
                         help="iterations between kept generational checkpoints")
+    parser.add_argument("--resume", type=Path, default=None,
+                        help="continue from a checkpoint instead of starting over")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=Path("models"))
     args = parser.parse_args()
@@ -90,6 +92,15 @@ def main() -> None:
     cumulative_elo = 0.0
 
     with Learner(game, config, seed=args.seed) as learner:
+        if args.resume:
+            # Restores the optimiser's moment estimates alongside the weights.
+            # Resuming without them restarts AdamW cold, which shows up as a
+            # visible stumble in training immediately after every resume.
+            learner.load(args.resume)
+            print(f"resumed from {args.resume} at iteration {learner.iteration}; "
+                  f"the replay buffer starts empty and refills over the first few "
+                  f"iterations", flush=True)
+
         print(f"{args.game}: {learner.net.parameter_count():,} parameters, "
               f"{args.simulations} simulations per move, {args.workers} workers")
         if args.eval_every:
@@ -98,7 +109,8 @@ def main() -> None:
                   f"(resolves ~{resolvable_elo(args.eval_games):.0f} Elo)\n", flush=True)
         anchor = learner.cpu_net()
 
-        for _ in range(args.iterations):
+        remaining = max(0, args.iterations - learner.iteration)
+        for _ in range(remaining):
             stats = learner.run_iteration()
             print(stats.summary(), flush=True)
 
@@ -111,7 +123,16 @@ def main() -> None:
                     Player("previous", NetworkEvaluator(anchor), args.simulations),
                     args.eval_games, rng,
                 )
-                cumulative_elo += result.elo
+                # A clean sweep's point estimate is the clamp, not a measurement.
+                # Add the finite end of the interval instead, so the running
+                # total stays a bound rather than becoming nonsense.
+                low, high = result.interval
+                if math.isinf(high):
+                    cumulative_elo += low
+                elif math.isinf(low):
+                    cumulative_elo += high
+                else:
+                    cumulative_elo += result.elo
                 print(f"         {result.summary()}   cumulative {cumulative_elo:+.0f} "
                       f"Elo (assumes transitivity)", flush=True)
                 anchor = current

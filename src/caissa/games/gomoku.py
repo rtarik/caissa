@@ -28,6 +28,24 @@ SIZE = 9
 SQUARES = SIZE * SIZE
 CONNECT = 5
 
+#: Only empty points within this many squares of an existing stone are playable.
+#:
+#: This is domain knowledge, added deliberately, and it is worth being explicit
+#: about why. AlphaZero's premise is that no such knowledge is needed - but
+#: AlphaZero had roughly a million times this compute budget. Without the
+#: restriction, a search over eighty-odd near-identical empty points cannot reach
+#: a single terminal position: measured, twenty thousand simulations with a
+#: knowledge-free evaluator return a value of exactly zero for every move. The
+#: search has nothing to learn from, so the network has nothing to learn from,
+#: and the loop never starts. Restricting to the neighbourhood of the stones cuts
+#: the branching factor from 79 to 13 in the opening, and it converges back to
+#: the full board by the midgame once the stones have spread - so it costs
+#: nothing where the game is actually decided.
+#:
+#: It is how practical Gomoku engines have always worked. It is still a departure
+#: from "zero", and it is recorded as one in PLAN.md.
+NEIGHBOURHOOD = 1
+
 #: Horizontal, vertical, and the two diagonals.
 DIRECTIONS = ((0, 1), (1, 0), (1, 1), (1, -1))
 
@@ -56,15 +74,64 @@ class Gomoku:
         )
 
     def legal_actions(self, state: GomokuState) -> np.ndarray:
-        # Every empty intersection, with no further restriction: this is
-        # free-style Gomoku, without the opening handicaps some rulesets add to
-        # curb the first player's advantage.
-        return state.board.ravel() == 0
+        """Empty points near the existing stones - see :data:`NEIGHBOURHOOD`.
+
+        Free-style otherwise: no opening handicaps of the sort some rulesets add
+        to curb the first player's advantage.
+        """
+        empty = state.board == 0
+        if not (state.board != 0).any():
+            # An empty board has no neighbourhood. Opening anywhere is equivalent
+            # by symmetry, so the centre point is the whole of the opening book.
+            legal = np.zeros((SIZE, SIZE), dtype=bool)
+            legal[SIZE // 2, SIZE // 2] = True
+            return legal.ravel()
+
+        # Dilate the occupied mask by shifting it, rather than looping over the
+        # stones. Search calls this at every node, and a Python loop whose length
+        # grows with the number of stones makes the whole game slower as it goes
+        # on - measured at roughly twice the self-play cost by the midgame.
+        occupied = state.board != 0
+        near = np.zeros((SIZE, SIZE), dtype=bool)
+        for d_row in range(-NEIGHBOURHOOD, NEIGHBOURHOOD + 1):
+            for d_col in range(-NEIGHBOURHOOD, NEIGHBOURHOOD + 1):
+                rows = slice(max(0, -d_row), min(SIZE, SIZE - d_row))
+                cols = slice(max(0, -d_col), min(SIZE, SIZE - d_col))
+                near[rows, cols] |= occupied[
+                    slice(rows.start + d_row, rows.stop + d_row),
+                    slice(cols.start + d_col, cols.stop + d_col),
+                ]
+        return (empty & near).ravel()
+
+    def playable(self, state: GomokuState, action: int) -> bool:
+        """Whether one action is legal, without building the whole mask.
+
+        Search expands a node by calling :meth:`apply` once per legal move, so a
+        validity check that recomputes the full board mask would do that work
+        thirty times over for a single expansion. Looking at the one square and
+        its neighbours is the same answer for a fraction of the cost.
+        """
+        row, col = divmod(action, SIZE)
+        if state.board[row, col] != 0:
+            return False
+        if not (state.board != 0).any():
+            return row == SIZE // 2 and col == SIZE // 2
+        return bool(
+            (
+                state.board[
+                    max(0, row - NEIGHBOURHOOD) : row + NEIGHBOURHOOD + 1,
+                    max(0, col - NEIGHBOURHOOD) : col + NEIGHBOURHOOD + 1,
+                ]
+                != 0
+            ).any()
+        )
 
     def apply(self, state: GomokuState, action: int) -> GomokuState:
         row, col = divmod(action, SIZE)
-        if state.board[row, col] != 0:
-            raise ValueError(f"square {action} is already occupied")
+        if not self.playable(state, action):
+            raise ValueError(
+                f"square {action} is occupied or too far from the stones"
+            )
 
         board = state.board.copy()
         board[row, col] = 1

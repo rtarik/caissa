@@ -45,10 +45,17 @@ class MCTSConfig:
     c_puct: float = 1.5
 
     #: Dirichlet noise mixed into the root priors, to force exploration of moves
-    #: the network currently dislikes. ``alpha`` scales roughly as
-    #: ``10 / average number of legal moves`` - AlphaZero used 0.3 for chess
-    #: (~35 moves) and 0.03 for Go (~250). Connect 4 has 7, hence 1.0.
-    dirichlet_alpha: float = 1.0
+    #: the network currently dislikes.
+    #:
+    #: ``None`` derives it from the position, as ``10 / legal moves`` - the rule
+    #: AlphaZero used to pick 0.3 for chess (~35 moves) and 0.03 for Go (~250).
+    #: The scaling is not optional: Dirichlet noise is *concentrated* for small
+    #: alpha and *near-uniform* for large, and the point of it is to probe a few
+    #: specific alternatives properly rather than dilute the prior across
+    #: everything. A fixed 1.0 is right for Connect 4's seven moves and wrong by
+    #: a factor of eight for Gomoku's eighty, where it smears a quarter of the
+    #: root prior evenly over moves that are mostly bad.
+    dirichlet_alpha: float | None = None
     #: How much of the root prior is replaced by noise. AlphaZero used 0.25.
     dirichlet_epsilon: float = 0.25
 
@@ -223,7 +230,12 @@ class MCTS:
         not to degrade the search's judgement inside a line.
         """
         actions = list(root.children)
-        noise = self.rng.dirichlet([self.config.dirichlet_alpha] * len(actions))
+        # Derived from this position's branching factor unless pinned, so a game
+        # with a large action space is not handed near-uniform noise.
+        alpha = self.config.dirichlet_alpha
+        if alpha is None:
+            alpha = max(0.03, 10.0 / len(actions))
+        noise = self.rng.dirichlet([alpha] * len(actions))
         epsilon = self.config.dirichlet_epsilon
         for action, sample in zip(actions, noise):
             child = root.children[action]

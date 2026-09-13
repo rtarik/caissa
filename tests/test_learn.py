@@ -300,3 +300,24 @@ def test_no_gate_match_before_training_starts(game, monkeypatch):
     stats = learner.run_iteration()
     assert stats.losses is None
     assert stats.gate is None
+
+
+def test_resuming_continues_the_iteration_count(game, tmp_path):
+    """So an interrupted run picks up where it stopped rather than starting over.
+
+    The checkpoint carries the optimiser state as well as the weights, which is
+    what stops a resume from showing as a stumble in the loss.
+    """
+    first = Learner(game, tiny(), seed=0)
+    first.run_iteration()
+    first.run_iteration()
+    path = first.save(tmp_path / "interrupted.pt")
+
+    second = Learner(game, tiny(), seed=1)
+    second.load(path)
+
+    assert second.iteration == 2
+    assert len(second.buffer) == 0, "the buffer is not saved; it refills from play"
+
+    stats = second.run_iteration()
+    assert stats.iteration == 3, "should continue, not restart"

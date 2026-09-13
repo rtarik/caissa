@@ -8,7 +8,7 @@ Reversi or chess without changes to the search or training code.
 
 ## Status
 
-Phases 0 through 5 complete, Phase 6 (Gomoku) in progress. The trained games are playable
+Phases 0 through 6 complete. The trained games are playable
 in the browser against networks learned entirely from self-play, with search running in a
 Web Worker and nothing leaving the device. Each new game has needed three lines of change
 to existing framework code — the rest is the game itself.
@@ -27,6 +27,9 @@ Train Connect 4:
 ```bash
 .venv/bin/python scripts/train.py --iterations 40 --games 250 --workers 10
 ```
+
+Checkpoints are written after every iteration, so an interrupted run resumes with
+`--resume models/<game>-latest.pt`.
 
 Self-play runs across worker processes on the CPU; the gradient steps run on the GPU. Any
 script that starts the pool must guard its entry point with `if __name__ == "__main__":`.

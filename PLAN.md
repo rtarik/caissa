@@ -365,6 +365,73 @@ spaces are hard.
       heatmap where they are squares — eighty-one slivers say nothing, but the same
       numbers laid over the board show exactly where the search looked
 
+### Phase 6c — Why the first Gomoku engine was weak — **fixed**
+
+Diagnosed after the owner, an experienced Gomoku player, beat it easily and reported that it
+did not block an open three. It does not, and the reason is not a coding bug.
+
+**What the engine actually did**, on constructed threat positions:
+
+| threat | engine's reply |
+|---|---|
+| opponent has an open **four** | blocks, at every budget |
+| opponent has an open **three** | **misses, even at 3,000 simulations** |
+| engine has an open four | wins immediately |
+
+At 3,000 simulations it *visits both* blocking squares and plays elsewhere anyway, because
+it values them identically to everything else: blocking scored Q = −0.85, a random move
+Q = −0.83. The network had learned "opponent has three in a row → I am losing" and not
+"…and this square fixes it".
+
+That is a **self-play bootstrap failure**, not a defect. In the training games neither side
+could punish or defend, so "open three → loss" was statistically true *regardless of the
+reply*, and the value head learned exactly that. Search could not correct it either: with a
+knowledge-free evaluator, 20,000 simulations return a value of exactly **0.00 for every
+move**, because in an 81-wide tree no rollout ever reaches a terminal position.
+
+Three causes, all fixed:
+
+- [x] **The branching factor was too high for any search to work.** Play is now restricted to
+      empty points within one square of an existing stone — 79 legal moves in the opening
+      becomes 13, converging back to the full board by the midgame. This is deliberate
+      domain knowledge and a departure from "zero"; it is how practical Gomoku engines have
+      always worked, and without it the loop cannot start at this compute budget.
+- [x] **The simulation budget was too small.** 50 → 250 per move.
+- [x] **The Dirichlet alpha was not scaled to the action space.** It is now derived per
+      position as `10 / legal moves` — the rule AlphaZero used to pick 0.3 for chess and
+      0.03 for Go. A fixed 1.0 put only 22.9% of the noise on the top five actions against
+      AlphaZero's 60–64%, smearing a quarter of the root prior across moves that were mostly
+      bad.
+
+Two performance faults surfaced while fixing the above, both in the new rules code:
+
+- [x] `legal_actions` looped over every stone in Python, so the game got slower as it went
+      on. Replaced with a vectorised dilation of the occupied mask: 22.7 µs → 13.7 µs.
+- [x] `apply` validated a move by building the *whole* legal mask, so expanding a node with
+      thirty children did that work thirty times. Replaced with a single-square check, with
+      a test asserting the two agree on every square of 60 positions.
+
+Together: **147 s per training iteration → 40 s.**
+
+**Still open: the arena runs sequentially.** A 100-game evaluation at 250 simulations takes
+about ten minutes in the main process while eight self-play workers sit idle — so on the
+retraining run, evaluation cost roughly three times what training did. `play_match` should
+use the same worker pool as self-play. Worth fixing before chess, where the per-move cost is
+far higher again.
+
+- [ ] Parallelise `arena.play_match` across the self-play pool
+- [x] `--resume` on the training script, so an interrupted run continues from its
+      checkpoint instead of starting over (the checkpoint existed; nothing could read it)
+
+**Carry into Isola and chess.** Simulations per move must be sized against the branching
+factor, not carried over from the previous game — 50 simulations over 73 legal moves visits
+two of them, and the "improved" policy target is then a sharpened copy of the prior.
+
+**At fixed wall-clock, trading games for simulations is probably the larger win.** 3,600
+games at 50 simulations and 450 games at 400 are the same total compute, but only the second
+produces training targets that search actually improved. The premise of the whole algorithm
+is that search quality creates the learning signal.
+
 ### Phase 7+ — The rest of the ladder, then chess
 
 - [ ] Isola, Dots & Boxes
@@ -531,6 +598,47 @@ player builds an unanswerable threat faster, so improvement shows up as games en
 Connect 4's 0.57, on an action space twelve times larger. Value loss, by contrast, fell to
 0.07 — far lower than either earlier game, because Gomoku positions are decisive and
 readable once a threat is on the board.
+
+### Gomoku, second run — after the fixes (40 iterations, 110 games, 250 simulations)
+
+3,300 games in about 90 minutes, of which roughly two thirds was *evaluation* rather than
+training — see the open item on the sequential arena.
+
+| | first run (broken) | second run |
+|---|---|---|
+| gen10 vs gen5 | +92 Elo | **+315** |
+| gen15 vs gen10 | +147 | **+512** |
+| gen20 vs gen15 | +85 | +182 |
+| gen25 vs gen20 | +70 | **+346** |
+| gen30 vs gen25 | +49, not significant | **+308** |
+| gen35 vs gen30 | — | **+147** |
+| gen40 vs gen35 | — | **+78** |
+| final value loss | 0.07 | **0.135** |
+
+**All eight evaluations significant**, and still gaining at gen40.
+
+**Two indicators that the fix is real, beyond the Elo.**
+
+*Games got longer, not shorter.* 25 plies at iteration 1, dipping to 16 by iteration 10 as
+the attacker improved first, then rising to **62 by iteration 40** as defence caught up. On
+an 81-point board that means most of it fills. The first, broken run went monotonically the
+other way — 35 plies down to 16 — because a stronger attacker was beating a defenceless
+opponent faster. Length rising is what mutual competence looks like.
+
+*Draws appeared.* The first run produced none at all. In the second, gen40's evaluation match
+was **+39 =44 -17** — nearly half the games drawn, because both networks now block each other
+to a full board.
+
+**And the reported failure is gone.** On the position the owner described:
+
+| | before | after |
+|---|---|---|
+| prior on the blocking squares | 0.09 | **0.789 + 0.209** |
+| value | −0.85 ("lost") | −0.20 ("worse, but playable") |
+| blocks at 50 / 3000 sims | ✗ ✗ | **✓ ✓** |
+
+It also now values an opponent's *open four* at exactly −1.00 and blocks anyway — which is
+correct play: an open four cannot be stopped, and the block is the best try.
 
 ---
 
@@ -782,6 +890,17 @@ not a substitute for the AlphaZero paper.
   ">+849". Found by reading the training log rather than by a failing test.
 ### Phase 6
 
+- **A metric can move the right way for the wrong reason** — Phase 6 recorded that Gomoku
+  games got shorter as the network improved, and explained it as a stronger winner finishing
+  sooner. That was true and it was also the signature of a broken run: the "winner" was
+  beating an opponent that could not defend. After the fix games got *longer*, from 25 plies
+  to 62, and nearly half of them drew. Direction alone means nothing without asking which
+  side of the game is producing it.
+- **Restricting the action space can be the difference between learning and not** — with 79
+  legal moves, a knowledge-free search of 20,000 simulations reaches no terminal position and
+  returns a value of exactly zero everywhere. Cutting the branching factor to 13 is domain
+  knowledge and a departure from "zero", but AlphaZero had roughly a million times this
+  budget. The honest move is to take the shortcut and write down that you took it.
 - **Improvement does not always look the same** — Connect 4 and Reversi games got *longer*
   as the networks improved, because a stronger loser survives further. Gomoku games got
   shorter, from 35 plies to 16, because a stronger winner finishes sooner. Neither
@@ -791,6 +910,16 @@ not a substitute for the AlphaZero paper.
   legal moves is four apiece, against nearly thirty when there are seven. That, more than
   the sparse policy target, is why big action spaces are hard: the same budget buys much
   less certainty per move.
+- **Search must be wide enough to visit the moves it is choosing between** — the policy
+  improvement operator only improves anything if the search examines alternatives. At 50
+  simulations over 73 legal moves it visits two, so the "improved" target is a sharpened
+  copy of the prior and the loop learns almost nothing beyond the game result. Simulation
+  budget has to scale with the branching factor, not be carried over from the previous game.
+- **Exploration noise has a shape, and the shape depends on the action count** — Dirichlet
+  noise should be *concentrated*, so the agent tries a few specific alternatives properly.
+  At a fixed alpha it becomes a uniform smear as the action space grows, diluting the prior
+  instead of probing it. It is one constant, it was right for Connect 4, and it was wrong by
+  a factor of eight for Gomoku.
 - **Raising the evaluation sample paid for itself immediately** — four of Gomoku's six
   progress measurements were between 49 and 92 Elo, all invisible to a 40-game match. The
   Phase 5 fix turned a run that would have looked like it stalled after gen5 into one with

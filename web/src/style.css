@@ -6,6 +6,7 @@
   --muted: #697080;
   --line: #e2e2de;
   --board: #2f3a52;
+  --grid: #8a93a8;
   --hole: #f6f6f4;
   --you: #e0603a;
   --engine: #e8b33a;
@@ -22,6 +23,7 @@
     --muted: #8d95a5;
     --line: #242934;
     --board: #222939;
+    --grid: #4a5468;
     --hole: #0e1014;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 30px rgb(0 0 0 / 0.35);
   }
@@ -133,9 +135,9 @@ h1 {
   max-width: 520px;
   margin: 0 auto;
 }
-.grid-7 { grid-template-columns: repeat(7, 1fr); }
+.grid-7 { grid-template-columns: repeat(7, 1fr); gap: 10px; }
 .grid-8 { grid-template-columns: repeat(8, 1fr); gap: 5px; }
-.grid-9 { grid-template-columns: repeat(9, 1fr); gap: 4px; }
+.grid-9 { grid-template-columns: repeat(9, 1fr); gap: 0; }
 
 .cell {
   aspect-ratio: 1;
@@ -183,10 +185,51 @@ h1 {
   background: var(--you);
   opacity: 0.32;
 }
-/* Gomoku: stones sit on an open board, so empty squares stay flat and only
-   played stones become discs. */
-.lined .cell.you, .lined .cell.engine { border-radius: 50%; }
-.lined .cell.hint::after { content: none; }
+/* Stones drawn as children, so they can be smaller than the square they sit in
+   and never touch their neighbours. */
+.stone {
+  position: absolute;
+  inset: 11%;
+  border-radius: 50%;
+  background: currentColor;
+  pointer-events: none;
+}
+.stone.you { color: var(--you); }
+.stone.engine { color: var(--engine); }
+.stone.win { box-shadow: 0 0 0 3px var(--board), 0 0 0 6px var(--accent); }
+.squares .cell.you, .squares .cell.engine { background: color-mix(in srgb, var(--board) 72%, black); }
+
+/* Gomoku: stones sit on the intersections of a drawn grid, as on a real board.
+   Each cell paints a cross through its own centre and the crosses join up; the
+   edge classes cut the outer halves so the lines stop at the last intersection
+   rather than running into the margin. */
+.intersections { padding: 22px; }
+.intersections .cell {
+  background:
+    linear-gradient(var(--grid) 0 0) center / 100% 1px no-repeat,
+    linear-gradient(var(--grid) 0 0) center / 1px 100% no-repeat;
+  border-radius: 0;
+}
+.intersections .cell.top { background-size: 100% 1px, 1px 50%; background-position: center, center bottom; }
+.intersections .cell.bottom { background-size: 100% 1px, 1px 50%; background-position: center, center top; }
+.intersections .cell.left { background-size: 50% 1px, 1px 100%; background-position: right center, center; }
+.intersections .cell.right { background-size: 50% 1px, 1px 100%; background-position: left center, center; }
+.intersections .cell.top.left { background-size: 50% 1px, 1px 50%; background-position: right center, center bottom; }
+.intersections .cell.top.right { background-size: 50% 1px, 1px 50%; background-position: left center, center bottom; }
+.intersections .cell.bottom.left { background-size: 50% 1px, 1px 50%; background-position: right center, center top; }
+.intersections .cell.bottom.right { background-size: 50% 1px, 1px 50%; background-position: left center, center top; }
+/* Smaller than a traditional goban stone, which nearly fills the cell:
+   the grid stays visible between neighbouring stones. */
+.intersections .cell .stone { inset: 14%; }
+.board.intersections:not(.locked) .cell.playable:hover { transform: none; }
+.board.intersections:not(.locked) .cell.playable:hover::before {
+  content: "";
+  position: absolute;
+  inset: 24%;
+  border-radius: 50%;
+  background: var(--you);
+  opacity: 0.35;
+}
 
 /* `.squares` is on the board element itself, so this must be `.board.squares`. */
 .board.squares:not(.locked) .cell.playable:hover { transform: none; }

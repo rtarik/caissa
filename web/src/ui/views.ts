@@ -99,12 +99,15 @@ export const reversiView: View = {
       const owner = who(grid[i], ctx.humanFirst);
       // Legal squares are hinted, which is standard in Reversi interfaces and
       // removes a lot of squinting without giving anything away.
-      const classes = ["cell", owner, i === last ? "last" : "",
+      const classes = ["cell", i === last ? "last" : "",
                        !ctx.locked && legal[i] ? "playable hint" : ""];
       const row = Math.floor(i / R_SIZE);
+      // The disc is a child rather than the cell's own background, so it can be
+      // drawn smaller than its square and neighbouring discs never touch.
+      const disc = owner ? `<span class="stone ${owner}"></span>` : "";
       return `<button class="${classes.filter(Boolean).join(" ")}" data-action="${i}"
         ${ctx.locked || !legal[i] ? "disabled" : ""}
-        aria-label="Row ${row + 1}, column ${(i % R_SIZE) + 1}"></button>`;
+        aria-label="Row ${row + 1}, column ${(i % R_SIZE) + 1}">${disc}</button>`;
     }).join("");
   },
 
@@ -134,7 +137,7 @@ export const reversiView: View = {
 };
 
 export const gomokuView: View = {
-  layout: "grid-9 squares lined",
+  layout: "grid-9 intersections",
 
   board(ctx) {
     const grid: Grid = absoluteGrid(ctx.game, ctx.state, ctx.moves.length);
@@ -147,13 +150,22 @@ export const gomokuView: View = {
     );
 
     return Array.from({ length: G_SQUARES }, (_, i) => {
-      const classes = ["cell", who(grid[i], ctx.humanFirst), line.has(i) ? "win" : "",
-                       i === last ? "last" : "",
-                       !ctx.locked && legal[i] ? "playable" : ""];
       const row = Math.floor(i / G_SIZE);
+      const col = i % G_SIZE;
+      // Edge classes trim the grid lines so they stop at the outer
+      // intersections, as they do on a real board, rather than running on into
+      // the margin.
+      const classes = ["cell", i === last ? "last" : "",
+                       !ctx.locked && legal[i] ? "playable" : "",
+                       row === 0 ? "top" : "", row === G_SIZE - 1 ? "bottom" : "",
+                       col === 0 ? "left" : "", col === G_SIZE - 1 ? "right" : ""];
+      const owner = who(grid[i], ctx.humanFirst);
+      const stone = owner
+        ? `<span class="stone ${owner}${line.has(i) ? " win" : ""}"></span>`
+        : "";
       return `<button class="${classes.filter(Boolean).join(" ")}" data-action="${i}"
         ${ctx.locked || !legal[i] ? "disabled" : ""}
-        aria-label="Row ${row + 1}, column ${(i % G_SIZE) + 1}"></button>`;
+        aria-label="Row ${row + 1}, column ${col + 1}">${stone}</button>`;
     }).join("");
   },
 

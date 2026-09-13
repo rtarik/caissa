@@ -31,43 +31,90 @@ def play(game: Gomoku, *actions: int) -> GomokuState:
     return state
 
 
-def line(game: Gomoku, cells: list[int], spare: list[int]) -> GomokuState:
-    """Alternate the mover's stones through ``cells`` and the opponent's through
-    ``spare``, so the mover completes the line on the final ply."""
-    actions = []
-    for i, cell in enumerate(cells):
-        actions.append(cell)
-        if i < len(cells) - 1:
-            actions.append(spare[i])
-    return play(game, *actions)
+def constructed(mine: list[int], theirs: list[int], last: int) -> GomokuState:
+    """Build a position directly from the two sets of stones.
+
+    Direct rather than by play, because the neighbourhood restriction means a
+    line of five with spare stones tucked in a far corner is not reachable - and
+    the shapes under test are about the win condition, not about how they arose.
+    """
+    board = np.zeros((SIZE, SIZE), dtype=np.int8)
+    for cell in mine:
+        board[divmod(cell, SIZE)] = 1
+    for cell in theirs:
+        board[divmod(cell, SIZE)] = -1
+    return GomokuState(
+        board=board, last_move=last, ply=len(mine) + len(theirs)
+    )
+
+
+def just_played(cells: list[int], spare: list[int]) -> GomokuState:
+    """A position where the *previous* mover owns ``cells``, having just finished
+    it - so the player to move is the one facing the completed line."""
+    return constructed(mine=spare, theirs=cells, last=cells[-1])
 
 
 def test_satisfies_game_protocol(game):
     assert isinstance(game, Game)
 
 
-def test_starts_empty_with_every_square_open(game):
+def test_the_opening_is_the_centre_point(game):
+    """Every opening is equivalent by symmetry, so one of them is the book."""
     state = game.initial_state()
     assert state.board.shape == (SIZE, SIZE)
     assert not state.board.any()
-    assert game.legal_actions(state).all()
     assert game.legal_actions(state).size == SQUARES
+    assert np.flatnonzero(game.legal_actions(state)).tolist() == [square(4, 4)]
     assert game.terminal_value(state) is None
+
+
+def test_play_is_restricted_to_the_neighbourhood_of_the_stones(game):
+    """Deliberate domain knowledge - see NEIGHBOURHOOD in the module.
+
+    Without it, a search over eighty near-identical empty points never reaches a
+    terminal position, so neither search nor training has anything to learn from.
+    """
+    state = play(game, square(4, 4))
+    legal = np.flatnonzero(game.legal_actions(state))
+
+    assert len(legal) == 8, "the eight points around the lone stone"
+    for action in legal:
+        row, col = divmod(int(action), SIZE)
+        assert max(abs(row - 4), abs(col - 4)) == 1
+
+    with pytest.raises(ValueError, match="too far"):
+        game.apply(state, square(0, 0))
+
+
+def test_the_restriction_relaxes_as_stones_spread(game):
+    """It costs nothing by the midgame, which is where games are decided."""
+    rng = np.random.default_rng(0)
+    state = game.initial_state()
+    counts = []
+    for ply in range(24):
+        if game.terminal_value(state) is not None:
+            break
+        counts.append(int(game.legal_actions(state).sum()))
+        legal = np.flatnonzero(game.legal_actions(state))
+        state = game.apply(state, int(rng.choice(legal)))
+
+    assert counts[0] == 1
+    assert counts[-1] > counts[2], "the frontier should widen as stones spread"
 
 
 def test_a_played_square_is_no_longer_legal(game):
     state = game.apply(game.initial_state(), square(4, 4))
     assert not game.legal_actions(state)[square(4, 4)]
-    assert game.legal_actions(state).sum() == SQUARES - 1
     with pytest.raises(ValueError):
         game.apply(state, square(4, 4))
 
 
 def test_stones_stay_where_they_are_put(game):
-    """No gravity, unlike Connect 4 - the whole board is reachable."""
-    state = game.apply(game.initial_state(), square(0, 8))
-    assert state.board[0, 8] == -1  # the mover's stone, seen by the opponent
-    assert np.count_nonzero(state.board) == 1
+    """No gravity, unlike Connect 4 - a stone lands exactly where it is played."""
+    state = play(game, square(4, 4), square(3, 5))
+    assert state.board[4, 4] == 1   # played first, so the mover's again
+    assert state.board[3, 5] == -1  # the reply, the opponent's
+    assert np.count_nonzero(state.board) == 2
 
 
 @pytest.mark.parametrize(
@@ -80,8 +127,7 @@ def test_stones_stay_where_they_are_put(game):
     ],
 )
 def test_five_in_a_row_wins(game, cells, label):
-    spare = [square(8, c) for c in range(4)]
-    state = line(game, cells, spare)
+    state = just_played(cells, [square(8, c) for c in range(4)])
     # The winner just moved, so the player to move has lost.
     assert game.terminal_value(state) == -1.0, f"{label} five not detected"
 
@@ -89,20 +135,16 @@ def test_five_in_a_row_wins(game, cells, label):
 def test_four_in_a_row_is_not_enough(game):
     """The trap for anyone arriving from Connect 4."""
     cells = [square(4, c) for c in range(2, 2 + CONNECT - 1)]
-    spare = [square(8, c) for c in range(4)]
-    state = line(game, cells, spare)
     assert len(cells) == 4
+    state = just_played(cells, [square(8, c) for c in range(4)])
     assert game.terminal_value(state) is None
 
 
 def test_a_line_broken_by_an_opponent_stone_does_not_win(game):
-    # The mover takes (4,2), (4,3), (4,5), (4,6) while the opponent holds (4,4).
-    state = play(
-        game,
-        square(4, 2), square(4, 4),
-        square(4, 3), square(8, 0),
-        square(4, 5), square(8, 1),
-        square(4, 6), square(8, 2),
+    state = constructed(
+        mine=[square(4, 4)],
+        theirs=[square(4, 2), square(4, 3), square(4, 5), square(4, 6)],
+        last=square(4, 6),
     )
     assert game.terminal_value(state) is None
 
@@ -150,20 +192,19 @@ def test_a_full_board_with_no_line_is_a_draw(game):
 
 
 def test_encoding_separates_the_two_players(game):
-    state = play(game, square(4, 4), square(0, 0))
+    state = constructed(mine=[square(0, 0)], theirs=[square(4, 4)], last=square(4, 4))
     encoded = game.encode(state)
     assert encoded.shape == (game.input_planes, SIZE, SIZE)
     assert encoded.dtype == np.float32
-    # Two plies in, the player who opened is on move again - so (4,4) is theirs
-    # and sits in plane 0, while the reply at (0,0) is the opponent's in plane 1.
-    assert encoded[0, 4, 4] == 1.0
-    assert encoded[1, 0, 0] == 1.0
+    assert encoded[0, 0, 0] == 1.0  # the mover's stone
+    assert encoded[1, 4, 4] == 1.0  # the opponent's
     assert encoded.sum() == 2.0
 
 
 def test_applying_a_move_swaps_the_two_planes(game):
-    before = game.encode(play(game, square(4, 4), square(0, 0)))
-    after = game.encode(play(game, square(4, 4), square(0, 0), square(8, 8)))
+    state = play(game, square(4, 4), square(3, 3))
+    before = game.encode(state)
+    after = game.encode(game.apply(state, square(4, 3)))
     np.testing.assert_array_equal(after[0], before[1])
     added = after[1] - before[0]
     assert added.sum() == 1.0
@@ -189,14 +230,19 @@ VARIANTS = [(turns, mirror) for turns in range(4) for mirror in (False, True)]
 
 
 def test_a_square_board_has_eight_symmetries(game):
-    state = play(game, square(2, 3), square(5, 1))
+    """Needs a position with no symmetry of its own, or variants coincide.
+
+    Two stones on the main diagonal are unchanged by transposing the board, so
+    only four of the eight come out distinct - which says nothing about the code.
+    """
+    state = play(game, square(4, 4), square(3, 4), square(3, 5))
     variants = game.symmetries(game.encode(state), np.zeros(SQUARES, np.float32))
     assert len(variants) == 8
     assert len({v[0].tobytes() for v in variants}) == 8
 
 
 def test_symmetries_include_the_identity(game):
-    encoded = game.encode(play(game, square(2, 3)))
+    encoded = game.encode(play(game, square(4, 4)))
     policy = np.arange(SQUARES, dtype=np.float32)
     board, permuted = game.symmetries(encoded, policy)[0]
     np.testing.assert_array_equal(board, encoded)
@@ -204,7 +250,7 @@ def test_symmetries_include_the_identity(game):
 
 
 def test_policy_permutation_matches_the_board_permutation(game):
-    encoded = game.encode(play(game, square(2, 3)))
+    encoded = game.encode(play(game, square(4, 4)))
     for index, (turns, mirror) in enumerate(VARIANTS):
         for action in (square(0, 0), square(2, 5), square(8, 3)):
             policy = np.zeros(SQUARES, dtype=np.float32)
@@ -249,7 +295,7 @@ def test_transforming_commutes_with_playing(game):
 def test_terminal_detection_survives_the_symmetries(game):
     """A win must stay a win however the board is turned."""
     cells = [square(i, i) for i in range(2, 7)]
-    won = line(game, cells, [square(8, c) for c in range(4)])
+    won = just_played(cells, [square(8, c) for c in range(4)])
     assert game.terminal_value(won) == -1.0
 
     for turns, mirror in VARIANTS:
@@ -264,3 +310,26 @@ def test_terminal_detection_survives_the_symmetries(game):
 def test_render_shows_the_grid(game):
     text = game.render(play(game, square(4, 4)))
     assert len(text.splitlines()) == SIZE + 1
+
+
+def test_playable_agrees_with_the_full_mask(game):
+    """The fast single-square check and the full mask must never disagree.
+
+    ``apply`` uses the cheap one and search uses the mask, so a difference
+    between them would let search consider a move the rules reject - or, worse,
+    quietly forbid one the rules allow, with no error anywhere.
+    """
+    rng = np.random.default_rng(0)
+    for _ in range(60):
+        state = game.initial_state()
+        for _ in range(int(rng.integers(1, 55))):
+            if game.terminal_value(state) is not None:
+                break
+            legal = np.flatnonzero(game.legal_actions(state))
+            state = game.apply(state, int(rng.choice(legal)))
+
+        mask = game.legal_actions(state)
+        for action in range(game.action_size):
+            assert game.playable(state, action) == bool(mask[action]), (
+                f"disagreement on square {action} at ply {state.ply}"
+            )
