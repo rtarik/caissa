@@ -133,10 +133,10 @@ an arbitrary list.
 
 | Game | New concept it forces | Actions | Status |
 |---|---|---|---|
-| Connect 4 | Baseline. Solved, so strength can be checked against perfect play. | 7 | done |
-| Reversi | **Pass moves** — no legal action does not mean the game is over. 8-fold symmetry. | 65 | |
-| Gomoku | Large action space; policy targets become very sparse. | 81–225 | |
-| Isola | **Compound actions** (move *and* remove a tile) — action encoding design. | large | |
+| Four in a Row | Baseline. Solved, so strength can be checked against perfect play. | 7 | done |
+| Reversi | **Pass moves** — no legal action does not mean the game is over. 8-fold symmetry. | 65 | done |
+| Gomoku | Large action space; policy targets become very sparse. | 81 | done |
+| Isolation | **Compound actions** (move *and* remove a tile) — action encoding design. | 392 | done |
 | Dots & Boxes | **Accumulated score** rather than win/loss — what should the value head predict? | ~60 | |
 | Chess | Everything at once, plus a supervised bootstrap. | 4672 | |
 
@@ -677,6 +677,32 @@ to a full board.
 
 It also now values an opponent's *open four* at exactly −1.00 and blocks anyway — which is
 correct play: an open four cannot be stopped, and the block is the best try.
+
+### Names, and two deliberate deviations from the published games
+
+**Display names differ from internal keys for two games.** The page says *Four in a Row* and
+*Isolation*; the keys stay `connect4` and `isola`, so every model file, checkpoint and
+registry lookup is untouched. "Connect 4" is a live Hasbro trademark from 1974 and "Isola"
+is Ravensburger's. Reversi, Gomoku and Dots & Boxes need no such care — those are already
+the unencumbered names, and it is *Othello* that is the trademark, which is why nearly all
+software says Reversi.
+
+**Isolation is played on 7x7 here; the published board is 6x8.** Chosen before checking,
+and kept deliberately once checked. Switching would mean a full retrain and, less obviously,
+*half the augmentation*: a non-square rectangle has only four symmetries — identity, two
+mirrors and a half-turn — where a square has eight. The 7x7 network is trained and verified
+(95% on finding an immediate win, 100% on avoiding an immediate loss), so the cost was not
+worth paying for a variant of the same game.
+
+**Two further departures from the published Isolation rules**, both consequences of the
+above: the board is 49 squares rather than 48, and the two starting squares are ordinary
+tiles rather than the permanent platforms the Ravensburger board uses for its 46 tiles in 48
+squares. Under the real rules each player always has an indestructible home square, which
+changes the endgame.
+
+**Gomoku is 9x9 where the standard is 15x15**, recorded earlier for the same reason: five in
+a row spans most of a 9x9 board, which crowds out the double-threat construction that makes
+the full-size game interesting.
 
 ---
 

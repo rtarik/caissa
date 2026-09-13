@@ -8,6 +8,14 @@
  * Availability is not declared here. It comes from `models/index.json`, written
  * by the export script from the files that actually exist, so the menu cannot
  * offer a game whose network is missing or hide one that has just been trained.
+ *
+ * `title` is display text and `key` is the identifier used for model files,
+ * checkpoints and registry lookups. They differ on purpose for two games:
+ * "Connect 4" is a live Hasbro trademark and "Isola" is Ravensburger's, so the
+ * page shows the generic names while the keys - and everything already trained
+ * against them - stay put. Reversi, Gomoku and Dots & Boxes need no such care;
+ * those are the unencumbered names already (it is *Othello* that is the
+ * trademark, which is why nearly all software says Reversi).
  */
 export interface LadderEntry {
   key: string;
@@ -21,8 +29,8 @@ export interface LadderEntry {
 export const LADDER: LadderEntry[] = [
   {
     key: "connect4",
-    title: "Connect 4",
-    blurb: "Four in a row, with gravity.",
+    title: "Four in a Row",
+    blurb: "Drop a disc; gravity does the rest.",
     teaches: "The baseline. Solved, so play can be graded against perfect.",
   },
   {
@@ -39,7 +47,7 @@ export const LADDER: LadderEntry[] = [
   },
   {
     key: "isola",
-    title: "Isola",
+    title: "Isolation",
     blurb: "Move your piece, then destroy a square.",
     teaches: "Compound actions — a rehearsal for chess's move encoding.",
   },

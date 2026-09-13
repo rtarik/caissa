@@ -42,7 +42,7 @@ export interface View {
    * eighty-one slivers says nothing - but those actions *are* board squares, so
    * the same numbers laid out as a heatmap show exactly where the search looked.
    */
-  visits(counts: number[]): string;
+  visits(counts: number[], ctx: ViewContext): string;
 }
 
 /** A bar per action, for small action spaces. */
@@ -73,6 +73,11 @@ const wholeAction = (element: HTMLElement): Selection | null => {
   const value = element.dataset.action;
   return value === undefined ? null : { kind: "action", action: Number(value) };
 };
+
+/** Whether the Isola board should be drawn upside down to face the human. */
+function isolaFlipped(ctx: ViewContext): boolean {
+  return ctx.humanFirst;
+}
 
 const who = (owner: number, humanFirst: boolean) =>
   owner === 0 ? "" : (owner === 1) === humanFirst ? "you" : "engine";
@@ -195,6 +200,15 @@ export const isolaView: View = {
     const state = ctx.state as never as ReturnType<Isola["initialState"]>;
     const yourTurn = (ctx.moves.length % 2 === 0) === ctx.humanFirst;
 
+    // Isola is the first game here with sides, so it is the first that can be
+    // the wrong way up. Flip the rows when the human starts on the far edge, so
+    // their piece is always the near one - the convention every board game with
+    // a facing uses.
+    const flipped = isolaFlipped(ctx);
+    const toBoard = (display: number) =>
+      flipped ? (I_SIZE - 1 - Math.floor(display / I_SIZE)) * I_SIZE + (display % I_SIZE)
+              : display;
+
     // Two phases. Before a step is chosen the reachable squares are offered;
     // afterwards, the squares that may be destroyed. Showing both at once would
     // be ambiguous, since most squares qualify for one or the other.
@@ -211,7 +225,8 @@ export const isolaView: View = {
       }
     }
 
-    return Array.from({ length: I_SQUARES }, (_, i) => {
+    return Array.from({ length: I_SQUARES }, (_, display) => {
+      const i = toBoard(display);
       const classes = ["cell"];
       if (!state.usable[i]) classes.push("gone");
 
@@ -234,6 +249,8 @@ export const isolaView: View = {
   select(element, ctx) {
     const value = element.dataset.square;
     if (value === undefined) return null;
+    // `data-square` already holds the board index, not the displayed one, so the
+    // flip never reaches the action encoding.
     const square = Number(value);
     const game = ctx.game as unknown as Isola;
     const state = ctx.state as never as ReturnType<Isola["initialState"]>;
@@ -261,12 +278,21 @@ export const isolaView: View = {
   // Each of the eight direction planes covers the whole board, so the visits are
   // summed per destroyed square - which is the half of the action that has a
   // place on the board.
-  visits(counts) {
+  // Summed per destroyed square - the half of the action that has a place on
+  // the board - and flipped to match, or it would describe a board the viewer
+  // is not looking at.
+  visits(counts, ctx) {
     const perSquare = new Array<number>(I_SQUARES).fill(0);
     counts.forEach((visits, action) => {
       perSquare[action % I_SQUARES] += visits;
     });
-    return heatmap(perSquare, I_SQUARES, I_SIZE);
+    if (!isolaFlipped(ctx)) return heatmap(perSquare, I_SQUARES, I_SIZE);
+
+    const flipped = perSquare.map((_, display) => {
+      const row = I_SIZE - 1 - Math.floor(display / I_SIZE);
+      return perSquare[row * I_SIZE + (display % I_SIZE)];
+    });
+    return heatmap(flipped, I_SQUARES, I_SIZE);
   },
 };
 

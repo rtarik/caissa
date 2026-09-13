@@ -22,7 +22,7 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 .venv/bin/python -m pytest
 ```
 
-Train Connect 4:
+Train Four in a Row (key `connect4`):
 
 ```bash
 .venv/bin/python scripts/train.py --iterations 40 --games 250 --workers 10

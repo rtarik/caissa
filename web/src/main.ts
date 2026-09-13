@@ -299,7 +299,7 @@ function analysisPanel(): string {
     <h2>Analysis</h2>
     <div class="evalbar"><span style="width:${percent.toFixed(1)}%"></span></div>
     <div class="meta"><span>You ${percent.toFixed(0)}%</span><span>Engine ${(100 - percent).toFixed(0)}%</span></div>
-    ${view.visits(report.visits)}
+    ${view.visits(report.visits, context())}
     <div class="meta">
       <span>${report.visits.reduce((a, b) => a + b, 0)} simulations</span>
       <span>${Math.round(report.ms)} ms</span>

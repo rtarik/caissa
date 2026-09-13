@@ -325,12 +325,23 @@ footer {
 /* Isola: a tiled floor that is demolished as the game goes on. Squares rather
    than holes, because what matters is whether the ground is still there. */
 .tiles { gap: 5px; }
+/* A standing tile is a raised slab; a destroyed one is a hole in the floor.
+   The first version distinguished them by a few percent of lightness, which was
+   unreadable - the difference now is presence versus absence, not shade. */
 .tiles .cell {
   border-radius: 5px;
-  background: color-mix(in srgb, var(--board) 62%, white 8%);
-  transition: background 200ms ease, opacity 200ms ease;
+  background: color-mix(in srgb, var(--board) 40%, white 26%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    inset 0 -2px 0 rgb(0 0 0 / 0.22),
+    0 1px 2px rgb(0 0 0 / 0.25);
+  transition: background 220ms ease, box-shadow 220ms ease, transform 220ms ease;
 }
-.tiles .cell.gone { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--board) 50%, black); }
+.tiles .cell.gone {
+  background: color-mix(in srgb, var(--bg) 80%, black);
+  box-shadow: inset 0 2px 5px rgb(0 0 0 / 0.55);
+  transform: scale(0.9);
+}
 
 /* Pieces are drawn on the tile rather than replacing it, so a piece standing on
    the last square still reads as standing on something. */
@@ -345,6 +356,7 @@ footer {
 .tiles .cell.engine { color: var(--engine); }
 /* Where the piece came from, while the demolition is still being chosen. */
 .tiles .cell.ghost { color: var(--muted); }
+.tiles .cell.ghost::after { box-shadow: none; }
 .tiles .cell.ghost::after { opacity: 0.3; }
 
 /* Phase one offers the squares you can step to... */
