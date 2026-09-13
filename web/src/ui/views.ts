@@ -1,4 +1,5 @@
 import { COLS as C4_COLS, ROWS as C4_ROWS } from "../games/connect4";
+import { Gomoku, SIZE as G_SIZE, SQUARES as G_SQUARES } from "../games/gomoku";
 import { PASS, SIZE as R_SIZE, SQUARES as R_SQUARES } from "../games/reversi";
 import type { Game } from "../games/types";
 import { absoluteGrid, connect4LastMove, winningLine, type Grid } from "./board";
@@ -19,6 +20,38 @@ export interface View {
   actionFor(element: HTMLElement): number | null;
   /** Extra line under the board, such as a running score. */
   detail(ctx: ViewContext): string;
+  /**
+   * How search's visit counts should be drawn.
+   *
+   * A bar per action only reads when there are few of them. Connect 4 has seven,
+   * so bars work. Gomoku has eighty-one and Reversi sixty-five, and a row of
+   * eighty-one slivers says nothing - but those actions *are* board squares, so
+   * the same numbers laid out as a heatmap show exactly where the search looked.
+   */
+  visits(counts: number[]): string;
+}
+
+/** A bar per action, for small action spaces. */
+function bars(counts: number[], columns: number): string {
+  const best = Math.max(...counts);
+  const cells = counts
+    .map((v) => `<div class="visit ${v === best && v > 0 ? "best" : ""}"
+       style="height:${best > 0 ? Math.max(2, (v / best) * 100) : 2}%"
+       title="${v} visits"></div>`)
+    .join("");
+  return `<div class="visits" style="grid-template-columns: repeat(${columns}, 1fr)">${cells}</div>`;
+}
+
+/** The same numbers laid over the board, for action spaces that are squares. */
+function heatmap(counts: number[], squares: number, columns: number): string {
+  const best = Math.max(...counts.slice(0, squares));
+  const cells = counts
+    .slice(0, squares)
+    .map((v) => `<div class="heat" style="opacity:${
+      best > 0 ? Math.max(0.04, v / best) : 0.04
+    }" title="${v} visits"></div>`)
+    .join("");
+  return `<div class="heatmap" style="grid-template-columns: repeat(${columns}, 1fr)">${cells}</div>`;
 }
 
 const who = (owner: number, humanFirst: boolean) =>
@@ -49,6 +82,7 @@ export const connect4View: View = {
   },
 
   detail: () => "",
+  visits: (counts) => bars(counts, C4_COLS),
 };
 
 export const reversiView: View = {
@@ -88,12 +122,52 @@ export const reversiView: View = {
       else if (owner === 2) second++;
     }
     const [yours, theirs] = ctx.humanFirst ? [first, second] : [second, first];
-    return `<span class="dot you"></span> ${yours}
-            <span class="dot engine" style="margin-left:10px"></span> ${theirs}`;
+    return `<span class="spacer score">
+              <span class="dot you"></span>${yours}
+              <span class="dot engine" style="margin-left:8px"></span>${theirs}
+            </span>`;
   },
+
+  // The 65th action is the pass, which is not a square; the heatmap shows the
+  // board and leaves it out rather than pretending it has a location.
+  visits: (counts) => heatmap(counts, R_SQUARES, R_SIZE),
+};
+
+export const gomokuView: View = {
+  layout: "grid-9 squares lined",
+
+  board(ctx) {
+    const grid: Grid = absoluteGrid(ctx.game, ctx.state, ctx.moves.length);
+    const legal = ctx.game.legalActions(ctx.state);
+    const last = ctx.moves.length ? ctx.moves[ctx.moves.length - 1] : null;
+    // Highlighting the five is worth the detour: on an open board a finished
+    // line is genuinely hard to spot among thirty other stones.
+    const line = new Set(
+      (ctx.game as unknown as Gomoku).winningLine?.(ctx.state as never) ?? [],
+    );
+
+    return Array.from({ length: G_SQUARES }, (_, i) => {
+      const classes = ["cell", who(grid[i], ctx.humanFirst), line.has(i) ? "win" : "",
+                       i === last ? "last" : "",
+                       !ctx.locked && legal[i] ? "playable" : ""];
+      const row = Math.floor(i / G_SIZE);
+      return `<button class="${classes.filter(Boolean).join(" ")}" data-action="${i}"
+        ${ctx.locked || !legal[i] ? "disabled" : ""}
+        aria-label="Row ${row + 1}, column ${(i % G_SIZE) + 1}"></button>`;
+    }).join("");
+  },
+
+  actionFor(element) {
+    const value = element.dataset.action;
+    return value === undefined ? null : Number(value);
+  },
+
+  detail: () => "",
+  visits: (counts) => heatmap(counts, G_SQUARES, G_SIZE),
 };
 
 export const VIEWS: Record<string, View> = {
   connect4: connect4View,
   reversi: reversiView,
+  gomoku: gomokuView,
 };

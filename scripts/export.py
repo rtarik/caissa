@@ -12,11 +12,12 @@ wrong from either side.
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import torch
 
-from caissa.export import export_onnx, verify_onnx, write_manifest
+from caissa.export import export_onnx, verify_onnx, write_index, write_manifest
 from caissa.games import GAMES
 from caissa.network import NetworkConfig, PolicyValueNet
 
@@ -39,12 +40,16 @@ def main() -> None:
     write_manifest(args.out / f"{game.name}.json", game, net,
                    generation=checkpoint["iteration"], simulations=args.simulations)
 
+    index = write_index(args.out)
     difference = verify_onnx(net, model, game, positions=128)
     print(f"{model}  ({model.stat().st_size / 1024:.0f} KB, "
           f"{net.parameter_count():,} parameters, generation {checkpoint['iteration']})")
     print(f"  max softmax difference {difference['policy']:.2e}, "
           f"value {difference['value']:.2e}, "
           f"best-move agreement {difference['agreement']:.1%}")
+
+    print(f"  {index} lists "
+          f"{len(json.loads(index.read_text())['models'])} trained model(s)")
 
     if difference["policy"] > args.tolerance or difference["agreement"] < 1.0:
         raise SystemExit("export does not reproduce PyTorch; refusing to ship it")

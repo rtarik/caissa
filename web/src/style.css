@@ -1,28 +1,29 @@
 :root {
   color-scheme: light dark;
-  --bg: #f4f4f2;
+  --bg: #f6f6f4;
   --panel: #ffffff;
-  --ink: #16181d;
-  --muted: #6b7280;
-  --line: #dcdcd8;
+  --ink: #14161b;
+  --muted: #697080;
+  --line: #e2e2de;
   --board: #2f3a52;
-  --hole: #f4f4f2;
+  --hole: #f6f6f4;
   --you: #e0603a;
-  --engine: #eab308;
+  --engine: #e8b33a;
   --accent: #4f7cff;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px rgb(0 0 0 / 0.06);
+  --radius: 14px;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 10px 30px rgb(0 0 0 / 0.07);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1115;
-    --panel: #171a21;
-    --ink: #e8eaf0;
-    --muted: #9099a8;
-    --line: #262b35;
-    --board: #232a3a;
-    --hole: #0f1115;
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.3);
+    --bg: #0e1014;
+    --panel: #161920;
+    --ink: #e9ebf1;
+    --muted: #8d95a5;
+    --line: #242934;
+    --board: #222939;
+    --hole: #0e1014;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 10px 30px rgb(0 0 0 / 0.35);
   }
 }
 
@@ -33,30 +34,108 @@ body {
   min-height: 100dvh;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  display: grid;
-  place-items: start center;
-  padding: clamp(12px, 3vw, 40px) 16px 48px;
+  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-#app { width: 100%; max-width: 460px; }
+#app {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: clamp(16px, 3vw, 36px) clamp(14px, 3vw, 28px) 56px;
+}
 
-header { margin-bottom: 20px; }
-h1 { font-size: 20px; font-weight: 650; margin: 0 0 4px; letter-spacing: -0.01em; }
-.subtitle { color: var(--muted); font-size: 13px; margin: 0; }
+/* ------------------------------------------------------------------ header */
+
+header { margin-bottom: 18px; }
+h1 {
+  font-size: clamp(20px, 3vw, 26px);
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.tagline { color: var(--muted); font-size: 14px; margin: 2px 0 0; }
+
+/* --------------------------------------------------------------- game menu */
+
+/* A horizontal strip that scrolls rather than wraps: six games wrap into an
+   untidy two rows on a phone, and a strip keeps the selected game in view. */
+.games {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0 10px;
+  margin-bottom: 6px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.games::-webkit-scrollbar { display: none; }
+
+.game-tab {
+  flex: none;
+  font: inherit;
+  font-weight: 550;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 15px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+/* Excludes the selected tab on purpose. Its background is already --ink, and
+   this rule out-specifies the selected style, so without the guard hovering
+   the current tab paints --ink text on an --ink pill and it vanishes. */
+.game-tab:hover:not(:disabled):not([aria-selected="true"]) {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+.game-tab[aria-selected="true"] {
+  color: var(--panel);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.game-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+.soon {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.layout { display: grid; gap: 18px; align-items: start; }
+@media (min-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 296px; gap: 24px; }
+}
+
+.stage { min-width: 0; }
+.side { display: grid; gap: 14px; }
+
+/* ------------------------------------------------------------------- board */
 
 .board {
   background: var(--board);
-  border-radius: 14px;
+  border-radius: var(--radius);
   padding: 10px;
   display: grid;
   gap: 8px;
   box-shadow: var(--shadow);
   touch-action: manipulation;
+  max-width: 520px;
+  margin: 0 auto;
 }
-
 .grid-7 { grid-template-columns: repeat(7, 1fr); }
-.grid-8 { grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.grid-8 { grid-template-columns: repeat(8, 1fr); gap: 5px; }
+.grid-9 { grid-template-columns: repeat(9, 1fr); gap: 4px; }
 
 .cell {
   aspect-ratio: 1;
@@ -66,85 +145,34 @@ h1 { font-size: 20px; font-weight: 650; margin: 0 0 4px; letter-spacing: -0.01em
   padding: 0;
   cursor: pointer;
   position: relative;
-  transition: transform 120ms ease, box-shadow 120ms ease;
+  transition: transform 120ms ease, background 160ms ease;
 }
 .cell:disabled { cursor: default; }
 .cell.you { background: var(--you); }
 .cell.engine { background: var(--engine); }
-.cell.win { box-shadow: 0 0 0 3px var(--panel), 0 0 0 5px currentColor; z-index: 1; }
+.cell.win { box-shadow: 0 0 0 3px var(--board), 0 0 0 6px var(--accent); z-index: 1; }
 .cell.last::after {
   content: "";
   position: absolute;
   inset: 38%;
   border-radius: 50%;
-  background: rgb(255 255 255 / 0.55);
+  background: rgb(255 255 255 / 0.6);
 }
 .board:not(.locked) .cell.playable:hover { transform: translateY(-3px); }
 .board:not(.locked) .cell.playable:hover::before {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 50%;
+  border-radius: inherit;
   background: var(--you);
-  opacity: 0.28;
+  opacity: 0.3;
 }
 
-.status {
-  margin: 18px 0 10px;
-  min-height: 22px;
-  font-weight: 550;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
-.dot.you { background: var(--you); }
-.dot.engine { background: var(--engine); }
-.thinking { color: var(--muted); font-weight: 450; }
-
-.panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px;
-  margin-top: 14px;
-}
-
-.row { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
-.row + .row { margin-top: 12px; }
-label { color: var(--muted); font-size: 13px; }
-
-select, button.action {
-  font: inherit;
-  color: var(--ink);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 7px 11px;
-  cursor: pointer;
-}
-button.action:hover, select:hover { border-color: var(--accent); }
-
-.evalbar {
-  height: 8px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--you) 0%, var(--you) var(--split), var(--engine) var(--split), var(--engine) 100%);
-  transition: --split 200ms ease;
-}
-.meta { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; margin-top: 8px; }
-
-.visits { display: grid; gap: 4px; margin-top: 10px; align-items: end; height: 44px; }
-.visit { background: var(--accent); border-radius: 3px 3px 0 0; opacity: 0.75; min-height: 2px; }
-.visit.best { opacity: 1; }
-
-footer { color: var(--muted); font-size: 12px; margin-top: 20px; text-align: center; }
-footer a { color: inherit; }
-
-/* Reversi: square cells on a felt grid, with legal squares hinted.
-   The disc rules repeat the .squares prefix on purpose: '.squares .cell' and
-   '.cell.you' have equal specificity, so without it the later rule would win and
-   every disc would render as an empty square. */
-.squares .cell { border-radius: 4px; background: color-mix(in srgb, var(--board) 70%, black); }
+/* Reversi: squares rather than holes, with legal moves hinted.
+   The disc rules repeat the `.squares` prefix deliberately — `.squares .cell`
+   and `.cell.you` have equal specificity, so without it the later rule wins and
+   every disc renders as an empty square. */
+.squares .cell { border-radius: 5px; background: color-mix(in srgb, var(--board) 72%, black); }
 .squares .cell.you { background: var(--you); border-radius: 50%; }
 .squares .cell.engine { background: var(--engine); border-radius: 50%; }
 .squares .cell.hint::after {
@@ -153,10 +181,99 @@ footer a { color: inherit; }
   inset: 34%;
   border-radius: 50%;
   background: var(--you);
-  opacity: 0.35;
+  opacity: 0.32;
 }
-/* `.squares` sits on the board element itself, not on a descendant, so this
-   has to be `.board.squares` - `.board .squares` would never match. */
+/* Gomoku: stones sit on an open board, so empty squares stay flat and only
+   played stones become discs. */
+.lined .cell.you, .lined .cell.engine { border-radius: 50%; }
+.lined .cell.hint::after { content: none; }
+
+/* `.squares` is on the board element itself, so this must be `.board.squares`. */
 .board.squares:not(.locked) .cell.playable:hover { transform: none; }
-.meta.score { font-size: 14px; color: var(--ink); align-items: center; gap: 4px; justify-content: flex-start; margin: 0 0 10px; }
-.meta.score .dot { display: inline-block; }
+
+/* ------------------------------------------------------------------ status */
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px auto 0;
+  max-width: 520px;
+  min-height: 26px;
+  font-weight: 560;
+}
+.status .spacer { margin-left: auto; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dot.you { background: var(--you); }
+.dot.engine { background: var(--engine); }
+.muted { color: var(--muted); font-weight: 450; }
+.score { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ panels */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 15px;
+}
+.panel h2 {
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+
+.field { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.field + .field { margin-top: 11px; }
+label { color: var(--muted); font-size: 13px; }
+
+select, button.action {
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 7px 11px;
+  cursor: pointer;
+  max-width: 60%;
+}
+button.action { width: 100%; max-width: none; margin-top: 12px; font-weight: 550; }
+select:hover, button.action:hover { border-color: var(--accent); }
+
+.evalbar {
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--engine);
+  position: relative;
+}
+.evalbar span { position: absolute; inset: 0 auto 0 0; background: var(--you); transition: width 220ms ease; }
+.meta {
+  color: var(--muted);
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.visits { display: grid; gap: 3px; margin-top: 14px; align-items: end; height: 40px; }
+.heatmap { display: grid; gap: 2px; margin-top: 14px; border-radius: 6px; overflow: hidden; }
+.heat { aspect-ratio: 1; background: var(--accent); border-radius: 2px; }
+.visit { background: var(--accent); border-radius: 2px 2px 0 0; opacity: 0.55; min-height: 2px; }
+.visit.best { opacity: 1; }
+
+.teaches { color: var(--muted); font-size: 13px; margin: 0; }
+.teaches strong { color: var(--ink); font-weight: 560; display: block; margin-bottom: 3px; }
+
+footer {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 28px;
+  text-align: center;
+  line-height: 1.7;
+}

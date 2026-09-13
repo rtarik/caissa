@@ -7,9 +7,11 @@
  */
 import { describe, expect, it } from "vitest";
 import { Connect4 } from "../src/games/connect4";
+import { Gomoku } from "../src/games/gomoku";
 import { Reversi, PASS, SQUARES } from "../src/games/reversi";
 import type { Game } from "../src/games/types";
 import connect4Vectors from "./connect4-vectors.json";
+import gomokuVectors from "./gomoku-vectors.json";
 import reversiVectors from "./reversi-vectors.json";
 
 interface Vectors {
@@ -23,6 +25,7 @@ interface Vectors {
 const SUBJECTS: { game: Game<unknown>; vectors: Vectors }[] = [
   { game: new Connect4() as Game<unknown>, vectors: connect4Vectors as Vectors },
   { game: new Reversi() as Game<unknown>, vectors: reversiVectors as Vectors },
+  { game: new Gomoku() as Game<unknown>, vectors: gomokuVectors as Vectors },
 ];
 
 for (const { game, vectors } of SUBJECTS) {

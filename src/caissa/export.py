@@ -75,6 +75,34 @@ def write_manifest(path: str | Path, game, net: PolicyValueNet, **extra) -> Path
     return path
 
 
+def write_index(directory: str | Path) -> Path:
+    """List the exported models, so the web app can show what actually exists.
+
+    The page offers every game on the ladder, but only some have been trained at
+    any given moment. Deriving that list from the directory rather than hard-coding
+    it in TypeScript means the menu cannot claim a game that is not there, and
+    cannot hide one that is.
+    """
+    directory = Path(directory)
+    entries = []
+    for manifest in sorted(directory.glob("*.json")):
+        if manifest.name == "index.json":
+            continue
+        data = json.loads(manifest.read_text())
+        model = directory / f"{data['game']}.onnx"
+        if not model.exists():
+            continue
+        entries.append({
+            "game": data["game"],
+            "generation": data.get("generation"),
+            "parameters": data.get("parameters"),
+        })
+
+    path = directory / "index.json"
+    path.write_text(json.dumps({"models": entries}, indent=2) + "\n")
+    return path
+
+
 def verify_onnx(net: PolicyValueNet, path: str | Path, game, positions: int = 64,
                 seed: int = 0) -> dict[str, float]:
     """Compare the exported graph against PyTorch on random positions.

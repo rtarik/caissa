@@ -1,0 +1,12 @@
+{
+  "game": "gomoku",
+  "inputPlanes": 2,
+  "boardShape": [
+    9,
+    9
+  ],
+  "actionSize": 81,
+  "parameters": 593090,
+  "generation": 30,
+  "simulations": 200
+}

@@ -65,6 +65,15 @@ Three consequences:
   | Python, N workers + batched eval server | ~30–50 k/s | ~15,000 | ~600 k games |
   | Rust MCTS | ~80–120 k/s | ~35,000 | ~1.4 M games |
 
+**Sustained load is safe, and did not throttle.** Across every training run macOS recorded
+no thermal warning and no performance warning, and throughput per unit of work stayed flat:
++1.9% over the 30-iteration Reversi run, +9.9% over the 40-iteration Connect 4 run (deeper
+search trees in longer games, not the chip backing off). A throttling machine gets slower
+*per position*; these did not. Apple Silicon firmware reduces clocks well below any harmful
+temperature, so full load is a supported operating mode — the real costs are fan noise, a
+warm chassis, and other applications feeling sluggish while all performance cores are busy.
+`--workers 8` leaves two cores free for roughly 20% less throughput.
+
 **Single-position inference is the wrong shape entirely.** Measured with the default
 Connect 4 network (352 k parameters):
 
@@ -324,9 +333,41 @@ The implicit version would sometimes leave the same player to move.
 reaches that the same way, via two forced passes, so "the board is full" and "nobody can
 move" cannot disagree, because only the second exists.
 
-### Phase 6+ — More games, then chess
+### Phase 6 — Gomoku — **done**
 
-- [ ] Further games from the ladder
+- [x] Gomoku rules on 9x9 (`src/caissa/games/gomoku.py`), five in a row, free-style
+- [x] Eight symmetries, every action a square so nothing is held out of the permutation
+- [x] TypeScript port, rules and search both validated against Python
+- [x] Tests, 203 Python and 40 TypeScript, mutation-verified against seven deliberate bugs
+- [x] Trained and exported to the browser
+
+Played on 9x9 rather than the traditional 15x15: identical rules, the same difficulty for
+the framework, and a fraction of the compute. 225 actions with games running past 200 plies
+would cost several times as much for no new lesson.
+
+**What it adds is scale.** Connect 4 offers seven actions and Reversi about ten at a time;
+Gomoku offers every empty intersection — 81 at the start, still 50 by mid-game. The policy
+target becomes *sparse*, which is harder to learn than it sounds, since a network can drive
+the loss a long way down by predicting "almost nothing, almost everywhere". And search gets
+thinner: 200 simulations over 50 moves is four apiece against nearly thirty when there are
+seven, so the same budget buys much less certainty. That is the real reason large action
+spaces are hard.
+
+### Phase 6b — The web app as a whole
+
+- [x] A game menu covering the full ladder, with untrained games shown but disabled
+- [x] Availability read from `models/index.json`, written by the export script from the
+      files that actually exist — so the menu cannot offer a game whose network is missing
+- [x] Two-column layout on desktop, stacked on mobile; the menu scrolls rather than wraps
+- [x] Per-game board views: Connect 4 columns, Reversi squares with legal-move hints,
+      Gomoku stones on an open board with the winning five highlighted
+- [x] Visit counts drawn per game: bars where the actions are few, and a board-shaped
+      heatmap where they are squares — eighty-one slivers say nothing, but the same
+      numbers laid over the board show exactly where the search looked
+
+### Phase 7+ — The rest of the ladder, then chess
+
+- [ ] Isola, Dots & Boxes
 - [ ] Chess representation (`python-chess`, AZ input planes, 73-plane move encoding)
 - [ ] Supervised bootstrap on Lichess games filtered to ~1800–1900
 - [ ] Self-play RL starting from the bootstrapped network
@@ -463,6 +504,33 @@ look exactly like a plateau at precisely the point where it stops being able to 
 The default evaluation sample is now 100 games rather than 40, and the help text says what
 that resolves. `resolvable_elo` was written in Phase 3 specifically to prevent this mistake,
 and it was still made — because the number was printed and not acted on.
+
+### Gomoku, first training run (30 iterations, 120 games each, 50 simulations)
+
+593 k parameter network on 9x9, ~11 minutes, 3,600 games. Evaluated every 5 iterations over
+100 games — the sample size raised after Phase 5, and it earned its keep immediately.
+
+| | result |
+|---|---|
+| gen5 vs gen0 | 76.0%, **+200 Elo** [+128, +293] |
+| gen10 vs gen5 | 63.0%, **+92 Elo** [+24, +168] |
+| gen15 vs gen10 | 70.0%, **+147 Elo** [+78, +230] |
+| gen20 vs gen15 | 62.0%, **+85 Elo** [+17, +160] |
+| gen25 vs gen20 | 60.0%, **+70 Elo** [+2, +144] |
+| gen30 vs gen25 | 57.0%, +49 Elo [−19, +121], not significant |
+
+Five consecutive significant gains and no plateau. **Four of those six results would have
+been invisible at the old 40-game default**, which cannot resolve better than 111 Elo — the
+same failure that made Reversi look finished when it was not.
+
+**Games got shorter as it improved**: 35 plies at iteration 1, 16 by iteration 30. The
+opposite of Connect 4 and Reversi, where stronger play lengthened games. A stronger Gomoku
+player builds an unanswerable threat faster, so improvement shows up as games ending sooner.
+
+**The sparse-target difficulty is visible in the loss.** Policy loss settled at 1.37 against
+Connect 4's 0.57, on an action space twelve times larger. Value loss, by contrast, fell to
+0.07 — far lower than either earlier game, because Gomoku positions are decisive and
+readable once a threat is on the board.
 
 ---
 
@@ -712,6 +780,22 @@ not a substitute for the AlphaZero paper.
   though it had been measured. The rule of three gives the honest version: zero losses in n
   games puts the 95% bound on losing at 3/n, so 40-0 means ">+436 Elo" and 400-0 means
   ">+849". Found by reading the training log rather than by a failing test.
+### Phase 6
+
+- **Improvement does not always look the same** — Connect 4 and Reversi games got *longer*
+  as the networks improved, because a stronger loser survives further. Gomoku games got
+  shorter, from 35 plies to 16, because a stronger winner finishes sooner. Neither
+  direction is a warning sign on its own; what matters is knowing which one the game should
+  produce before reading anything into it.
+- **A large action space thins the search, not just the policy** — 200 simulations over 50
+  legal moves is four apiece, against nearly thirty when there are seven. That, more than
+  the sparse policy target, is why big action spaces are hard: the same budget buys much
+  less certainty per move.
+- **Raising the evaluation sample paid for itself immediately** — four of Gomoku's six
+  progress measurements were between 49 and 92 Elo, all invisible to a 40-game match. The
+  Phase 5 fix turned a run that would have looked like it stalled after gen5 into one with
+  five consecutive significant gains.
+
 - **An underpowered measurement looks exactly like a plateau** — and it starts looking like
   one at precisely the moment it loses the ability to see. Two 40-game matches showed no
   progress across ten Reversi iterations; a 200-game match across the same span showed
