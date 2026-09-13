@@ -1,0 +1,12 @@
+{
+  "game": "isola",
+  "inputPlanes": 3,
+  "boardShape": [
+    7,
+    7
+  ],
+  "actionSize": 392,
+  "parameters": 386265,
+  "generation": 30,
+  "simulations": 200
+}

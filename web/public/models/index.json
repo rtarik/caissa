@@ -11,6 +11,11 @@
       "parameters": 593090
     },
     {
+      "game": "isola",
+      "generation": 30,
+      "parameters": 386265
+    },
+    {
       "game": "reversi",
       "generation": 30,
       "parameters": 498834

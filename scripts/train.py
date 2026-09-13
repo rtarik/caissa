@@ -18,16 +18,17 @@ is the solver comparison in Phase 3c.
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 
 import numpy as np
 import torch
 
-from caissa.arena import Player, play_match, resolvable_elo
+from caissa.arena import resolvable_elo
 from caissa.games import GAMES
 from caissa.learn import GateConfig, LearnConfig, Learner
 from caissa.mcts import MCTSConfig
-from caissa.network import NetworkConfig, NetworkEvaluator
+from caissa.network import NetworkConfig
 from caissa.selfplay import SelfPlayConfig
 from caissa.train import TrainConfig
 
@@ -41,6 +42,9 @@ def main() -> None:
     parser.add_argument("--train-steps", type=int, default=500)
     parser.add_argument("--blocks", type=int, default=4)
     parser.add_argument("--channels", type=int, default=64)
+    parser.add_argument("--policy-head", default="dense", choices=("dense", "conv"),
+                        help="conv reads the action off the board; needs the action "
+                             "space to be a multiple of the squares (Isola, chess)")
     parser.add_argument("--buffer", type=int, default=120_000)
     parser.add_argument("--workers", type=int, default=10,
                         help="self-play processes; 1 runs in-process (easier to debug)")
@@ -72,7 +76,8 @@ def main() -> None:
         buffer_capacity=args.buffer,
         workers=args.workers,
         train_device=args.device,
-        network=NetworkConfig(blocks=args.blocks, channels=args.channels),
+        network=NetworkConfig(blocks=args.blocks, channels=args.channels,
+                              policy_head=args.policy_head),
         mcts=MCTSConfig(simulations=args.simulations),
         selfplay=SelfPlayConfig(),
         train=TrainConfig(),
@@ -116,12 +121,10 @@ def main() -> None:
 
             if args.eval_every and stats.iteration % args.eval_every == 0:
                 current = learner.cpu_net()
-                result = play_match(
-                    game,
-                    Player(f"gen{stats.iteration}", NetworkEvaluator(current),
-                           args.simulations),
-                    Player("previous", NetworkEvaluator(anchor), args.simulations),
-                    args.eval_games, rng,
+                result = learner.evaluate(
+                    anchor, args.eval_games, args.simulations,
+                    seed=int(rng.integers(0, 2**31 - 1)),
+                    names=(f"gen{stats.iteration}", "previous"),
                 )
                 # A clean sweep's point estimate is the clamp, not a measurement.
                 # Add the finite end of the interval instead, so the running

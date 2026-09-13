@@ -8,7 +8,7 @@ Reversi or chess without changes to the search or training code.
 
 ## Status
 
-Phases 0 through 6 complete. The trained games are playable
+Phases 0 through 7 complete. The trained games are playable
 in the browser against networks learned entirely from self-play, with search running in a
 Web Worker and nothing leaving the device. Each new game has needed three lines of change
 to existing framework code — the rest is the game itself.

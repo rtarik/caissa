@@ -1,5 +1,6 @@
 import { COLS as C4_COLS, ROWS as C4_ROWS } from "../games/connect4";
 import { Gomoku, SIZE as G_SIZE, SQUARES as G_SQUARES } from "../games/gomoku";
+import { Isola, SIZE as I_SIZE, SQUARES as I_SQUARES } from "../games/isola";
 import { PASS, SIZE as R_SIZE, SQUARES as R_SQUARES } from "../games/reversi";
 import type { Game } from "../games/types";
 import { absoluteGrid, connect4LastMove, winningLine, type Grid } from "./board";
@@ -10,14 +11,27 @@ export interface ViewContext<S = unknown> {
   moves: number[];
   humanFirst: boolean;
   locked: boolean;
+  /**
+   * A half-finished move, for games whose turn is more than one decision.
+   *
+   * Isola asks for a step and then a demolition. Rather than let the page
+   * invent a second kind of turn, the view reports what a click *meant* and the
+   * page holds the fragment until it becomes a whole action.
+   */
+  pending: number | null;
 }
+
+/** What a click on the board amounted to. */
+export type Selection =
+  | { kind: "action"; action: number }
+  | { kind: "pending"; pending: number | null };
 
 export interface View {
   /** CSS class controlling the board's grid shape. */
   readonly layout: string;
   board(ctx: ViewContext): string;
-  /** The action a clicked element stands for, or null if it is not playable. */
-  actionFor(element: HTMLElement): number | null;
+  /** What clicking this element means: a whole action, or part of one. */
+  select(element: HTMLElement, ctx: ViewContext): Selection | null;
   /** Extra line under the board, such as a running score. */
   detail(ctx: ViewContext): string;
   /**
@@ -54,6 +68,12 @@ function heatmap(counts: number[], squares: number, columns: number): string {
   return `<div class="heatmap" style="grid-template-columns: repeat(${columns}, 1fr)">${cells}</div>`;
 }
 
+/** For games where one click is one turn. */
+const wholeAction = (element: HTMLElement): Selection | null => {
+  const value = element.dataset.action;
+  return value === undefined ? null : { kind: "action", action: Number(value) };
+};
+
 const who = (owner: number, humanFirst: boolean) =>
   owner === 0 ? "" : (owner === 1) === humanFirst ? "you" : "engine";
 
@@ -76,11 +96,7 @@ export const connect4View: View = {
     }).join("");
   },
 
-  actionFor(element) {
-    const value = element.dataset.action;
-    return value === undefined ? null : Number(value);
-  },
-
+  select: wholeAction,
   detail: () => "",
   visits: (counts) => bars(counts, C4_COLS),
 };
@@ -111,10 +127,7 @@ export const reversiView: View = {
     }).join("");
   },
 
-  actionFor(element) {
-    const value = element.dataset.action;
-    return value === undefined ? null : Number(value);
-  },
+  select: wholeAction,
 
   detail(ctx) {
     const grid = absoluteGrid(ctx.game, ctx.state, ctx.moves.length);
@@ -169,17 +182,97 @@ export const gomokuView: View = {
     }).join("");
   },
 
-  actionFor(element) {
-    const value = element.dataset.action;
-    return value === undefined ? null : Number(value);
-  },
-
+  select: wholeAction,
   detail: () => "",
   visits: (counts) => heatmap(counts, G_SQUARES, G_SIZE),
+};
+
+export const isolaView: View = {
+  layout: "grid-7 tiles",
+
+  board(ctx) {
+    const game = ctx.game as unknown as Isola;
+    const state = ctx.state as never as ReturnType<Isola["initialState"]>;
+    const yourTurn = (ctx.moves.length % 2 === 0) === ctx.humanFirst;
+
+    // Two phases. Before a step is chosen the reachable squares are offered;
+    // afterwards, the squares that may be destroyed. Showing both at once would
+    // be ambiguous, since most squares qualify for one or the other.
+    const stepping = ctx.pending === null;
+    const targets = new Set(stepping ? game.steps(state) : []);
+    const landing = ctx.pending ?? state.mover;
+
+    const destroyable = new Set<number>();
+    if (!stepping) {
+      for (let square = 0; square < I_SQUARES; square++) {
+        if (!state.usable[square]) continue;
+        if (square === landing || square === state.opponent) continue;
+        destroyable.add(square);
+      }
+    }
+
+    return Array.from({ length: I_SQUARES }, (_, i) => {
+      const classes = ["cell"];
+      if (!state.usable[i]) classes.push("gone");
+
+      // The mover is whoever is to move now, which is you on your turn.
+      if (i === state.mover && stepping) classes.push("piece", yourTurn ? "you" : "engine");
+      else if (i === state.mover && !stepping) classes.push("piece", "ghost");
+      else if (i === landing && !stepping) classes.push("piece", yourTurn ? "you" : "engine");
+      else if (i === state.opponent) classes.push("piece", yourTurn ? "engine" : "you");
+
+      const offered = !ctx.locked && (targets.has(i) || destroyable.has(i));
+      if (offered) classes.push("playable", stepping ? "reach" : "doomed");
+
+      const row = Math.floor(i / I_SIZE);
+      return `<button class="${classes.join(" ")}" data-square="${i}"
+        ${offered || (i === landing && !stepping) ? "" : "disabled"}
+        aria-label="Row ${row + 1}, column ${(i % I_SIZE) + 1}"></button>`;
+    }).join("");
+  },
+
+  select(element, ctx) {
+    const value = element.dataset.square;
+    if (value === undefined) return null;
+    const square = Number(value);
+    const game = ctx.game as unknown as Isola;
+    const state = ctx.state as never as ReturnType<Isola["initialState"]>;
+
+    if (ctx.pending === null) {
+      return game.steps(state).includes(square)
+        ? { kind: "pending", pending: square }
+        : null;
+    }
+    // Clicking the chosen square again takes the step back.
+    if (square === ctx.pending) return { kind: "pending", pending: null };
+
+    const direction = game.directionBetween(state.mover, ctx.pending);
+    if (direction < 0) return null;
+    return { kind: "action", action: direction * I_SQUARES + square };
+  },
+
+  detail(ctx) {
+    const state = ctx.state as never as ReturnType<Isola["initialState"]>;
+    let standing = 0;
+    for (const value of state.usable) standing += value;
+    return `<span class="spacer score">${standing} squares left</span>`;
+  },
+
+  // Each of the eight direction planes covers the whole board, so the visits are
+  // summed per destroyed square - which is the half of the action that has a
+  // place on the board.
+  visits(counts) {
+    const perSquare = new Array<number>(I_SQUARES).fill(0);
+    counts.forEach((visits, action) => {
+      perSquare[action % I_SQUARES] += visits;
+    });
+    return heatmap(perSquare, I_SQUARES, I_SIZE);
+  },
 };
 
 export const VIEWS: Record<string, View> = {
   connect4: connect4View,
   reversi: reversiView,
   gomoku: gomokuView,
+  isola: isolaView,
 };

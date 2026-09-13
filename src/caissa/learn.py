@@ -43,7 +43,7 @@ import torch
 
 from caissa.arena import MatchResult, Player, play_match
 from caissa.mcts import MCTS, MCTSConfig
-from caissa.parallel import ParallelSelfPlay, single_threaded
+from caissa.parallel import ParallelArena, single_threaded
 from caissa.network import (
     NetworkConfig,
     NetworkEvaluator,
@@ -158,7 +158,9 @@ class Learner:
         self.buffer = ReplayBuffer(self.config.buffer_capacity)
         self.iteration = 0
         self.history: list[IterationStats] = []
-        self._pool: ParallelSelfPlay | None = None
+        # A ParallelArena is a ParallelSelfPlay that can also run matches, so
+        # one pool serves both jobs and neither pays to start its own.
+        self._pool: ParallelArena | None = None
         # The network that generates self-play data. Without gating it is simply
         # the latest one; with gating it is the last one to win a promotion
         # match, so a bad iteration cannot poison every iteration after it.
@@ -210,7 +212,7 @@ class Learner:
                 )
 
         if self._pool is None:
-            self._pool = ParallelSelfPlay(
+            self._pool = ParallelArena(
                 self.game.name, self.config.network, self.config.mcts,
                 self.config.selfplay, self.config.workers,
             )
@@ -268,18 +270,43 @@ class Learner:
         self.history.append(stats)
         return stats
 
+    def evaluate(self, opponent: PolicyValueNet, games: int, simulations: int,
+                 seed: int, names: tuple[str, str] = ("current", "previous"),
+                 opening_plies: int = 2) -> MatchResult:
+        """Play the current network against ``opponent``, in parallel if possible.
+
+        Falls back to a single-threaded match when the learner is not using a
+        pool, so a sequential run still works - just slowly. A 100-game match at
+        400 simulations is about 23 minutes in one process and under three across
+        eight, which on a long run is the difference between evaluation being a
+        footnote and evaluation being most of the wall clock.
+        """
+        current = self.cpu_net()
+        if self._pool is None:
+            return play_match(
+                self.game,
+                Player(names[0], NetworkEvaluator(current), simulations),
+                Player(names[1], NetworkEvaluator(opponent), simulations),
+                games, np.random.default_rng(seed), opening_plies,
+            )
+        return self._pool.match(
+            (self.config.network, current.state_dict()),
+            (self.config.network, opponent.state_dict()),
+            games=games, simulations=simulations, seed=seed,
+            opening_plies=opening_plies, names=names,
+        )
+
     def _run_gate(self, trained: bool) -> tuple[MatchResult | None, bool]:
         """Play the challenger against the incumbent and decide on promotion."""
         gate = self.config.gate
         if not gate.enabled or self.best_net is None or not trained:
             return None, False
 
-        challenger = Player("challenger", NetworkEvaluator(self.cpu_net()),
-                            gate.simulations)
-        incumbent = Player("incumbent", NetworkEvaluator(self.best_net),
-                           gate.simulations)
-        result = play_match(self.game, challenger, incumbent, gate.games,
-                            self.rng, gate.opening_plies)
+        result = self.evaluate(
+            self.best_net, gate.games, gate.simulations,
+            seed=int(self.rng.integers(0, 2**31 - 1)),
+            names=("challenger", "incumbent"), opening_plies=gate.opening_plies,
+        )
 
         promoted = result.score > gate.threshold
         if promoted:

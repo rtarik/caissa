@@ -419,7 +419,11 @@ retraining run, evaluation cost roughly three times what training did. `play_mat
 use the same worker pool as self-play. Worth fixing before chess, where the per-move cost is
 far higher again.
 
-- [ ] Parallelise `arena.play_match` across the self-play pool
+- [x] Parallelise `arena.play_match` across the self-play pool. `ParallelArena` extends
+      `ParallelSelfPlay`, so one pool serves both jobs. Pairs are split rather than games,
+      so every worker plays whole colour-reversed pairs and the variance reduction survives
+      the split — verified identical to a sequential match, seed for seed. A 100-game
+      evaluation at 400 simulations went from ~23 minutes to under three.
 - [x] `--resume` on the training script, so an interrupted run continues from its
       checkpoint instead of starting over (the checkpoint existed; nothing could read it)
 
@@ -432,9 +436,43 @@ games at 50 simulations and 450 games at 400 are the same total compute, but onl
 produces training targets that search actually improved. The premise of the whole algorithm
 is that search quality creates the learning signal.
 
-### Phase 7+ — The rest of the ladder, then chess
+### Phase 7 — Isola — *training*
 
-- [ ] Isola, Dots & Boxes
+- [x] Isola rules on 7x7 (`src/caissa/games/isola.py`) — step to an adjacent square, then
+      destroy any square still standing; a player with no legal action loses
+- [x] **Compound actions**, encoded as a product: `direction * 49 + square`, giving 392.
+      Chess does the same thing with 73 move types x 64 squares for its 4672.
+- [x] **Convolutional policy head** (`NetworkConfig.policy_head="conv"`) — one plane per
+      action type, read off at each square. Isola drops from 966k parameters to 386k, and
+      this is the head chess will need.
+- [x] Symmetries that transform *both halves* of a compound action
+- [x] TypeScript port with rules and search validated against Python
+- [x] A two-phase board: step, then choose the demolition, with the origin shown as a ghost
+- [x] Tests, 238 Python and 50 TypeScript, mutation-verified against seven deliberate bugs
+- [ ] Trained and exported
+
+**Why a product and not two half-moves.** Splitting the turn into two plies — one for the
+step, one for the demolition — would be simpler to encode and would break the invariant
+everything else depends on: that `apply` hands the position to the *other* player, so the
+canonical flip happens exactly once per move. The product keeps one turn as one action.
+
+**The compound action shows up again in the symmetries**, and nowhere else so far. Under a
+board rotation the destroyed square moves like any square *and* the direction rotates with
+it. Transforming one and not the other still produces a legal action on a plausible board,
+which is why it needed a commuting-diagram test over 500 position/action pairs rather than
+an inspection.
+
+**On the branching factor.** Isola opens with 235 legal actions — worse than Gomoku's 79 —
+and at 400 simulations a knowledge-free search reaches no terminal position from the opening,
+exactly as Gomoku did. But the board *shrinks by one square every turn*, so the game forces
+itself toward tractable positions: by ply 32 there are 30 legal actions, search concentrates
+96.7% of its visits on one move, and the root value reads +0.96. There is a built-in
+curriculum, and the endgame signal can propagate backward. Gomoku had no such escape, which
+is why it needed the neighbourhood restriction and Isola does not.
+
+### Phase 8+ — The rest of the ladder, then chess
+
+- [ ] Dots & Boxes
 - [ ] Chess representation (`python-chess`, AZ input planes, 73-plane move encoding)
 - [ ] Supervised bootstrap on Lichess games filtered to ~1800–1900
 - [ ] Self-play RL starting from the bootstrapped network
@@ -889,6 +927,29 @@ not a substitute for the AlphaZero paper.
   games puts the 95% bound on losing at 3/n, so 40-0 means ">+436 Elo" and 400-0 means
   ">+849". Found by reading the training log rather than by a failing test.
 ### Phase 6
+
+### Phase 7
+
+- **A compound action is a product, not a concatenation** — one turn stays one action, so
+  `apply` still hands the position to the other player and the canonical flip still happens
+  exactly once. Splitting the turn into two plies would be easier to encode and would break
+  the invariant every other component relies on.
+- **Every transform must act on every component** — a board symmetry rotates the destroyed
+  square *and* relabels the direction. Doing one produces a legal action on a plausible
+  board and silently wrong training data, multiplied eight times over by augmentation.
+- **A convolutional policy head needs the action space to be a product of board squares** —
+  Isola's 392 is 8 x 49 and chess's 4672 is 73 x 64, so both qualify; Connect 4's seven
+  columns are not its forty-two cells, so it does not. Where it applies it is less than half
+  the parameters and a better fit, because the action keeps its place on the board instead
+  of being scattered through a matrix.
+- **A shrinking board is its own curriculum** — Isola's branching is worse than Gomoku's at
+  the opening, but every turn removes a square, so the game walks itself into positions
+  search can actually solve. Whether a high branching factor is fatal depends on whether the
+  game ever gets easier on its own.
+- **A failing test can be the rules teaching you something** — a position where a player can
+  step but has nothing to destroy seemed obviously possible and is not: the square just
+  vacated is always standing and never occupied, so a legal step always has a legal
+  demolition. The game therefore ends on immobility alone.
 
 - **A metric can move the right way for the wrong reason** — Phase 6 recorded that Gomoku
   games got shorter as the network improved, and explained it as a stronger winner finishing

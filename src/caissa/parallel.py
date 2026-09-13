@@ -45,6 +45,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
+from caissa.arena import MatchResult, Player, play_match
 from caissa.games import GAMES
 from caissa.mcts import MCTS, MCTSConfig
 from caissa.network import NetworkConfig, NetworkEvaluator, PolicyValueNet
@@ -184,3 +185,83 @@ class ParallelSelfPlay:
         for result in self._pool.map(_run_worker, tasks):
             samples.extend(result)
         return samples
+
+
+@dataclass
+class MatchTask:
+    """One worker's share of an evaluation match."""
+
+    game_name: str
+    player: tuple[NetworkConfig, dict]
+    opponent: tuple[NetworkConfig, dict]
+    simulations: int
+    #: Always even: a worker plays whole colour-reversed pairs, never half of one.
+    games: int
+    opening_plies: int
+    seed: int
+
+
+def _rebuild(game, spec: tuple[NetworkConfig, dict]) -> NetworkEvaluator:
+    config, state = spec
+    net = PolicyValueNet.for_game(game, config)
+    net.load_state_dict(state)
+    return NetworkEvaluator(net)
+
+
+def _run_match(task: MatchTask) -> tuple[int, int, int]:
+    torch.set_num_threads(1)
+    game = GAMES[task.game_name]()
+    result = play_match(
+        game,
+        Player("player", _rebuild(game, task.player), task.simulations),
+        Player("opponent", _rebuild(game, task.opponent), task.simulations),
+        task.games,
+        np.random.default_rng(task.seed),
+        task.opening_plies,
+    )
+    return result.wins, result.draws, result.losses
+
+
+class ParallelArena(ParallelSelfPlay):
+    """Runs evaluation matches across the same pool self-play uses.
+
+    Worth its own class only because the alternative is worse than it sounds: a
+    single-threaded match of 100 games at 400 simulations takes about 23 minutes
+    while eight workers sit idle, which on a 30-iteration run costs more than all
+    the training put together.
+
+    Pairs are split rather than games, so every worker plays whole
+    colour-reversed pairs and the variance reduction that pairing exists for
+    survives the split.
+    """
+
+    def match(self, player: tuple[NetworkConfig, dict], opponent: tuple[NetworkConfig, dict],
+              games: int, simulations: int, seed: int, opening_plies: int = 2,
+              names: tuple[str, str] = ("player", "opponent")) -> MatchResult:
+        if self._pool is None:
+            raise RuntimeError("use ParallelArena as a context manager")
+
+        pairs = games // 2
+        if pairs < 1:
+            raise ValueError("a match needs at least two games, to make one pair")
+
+        def on_cpu(spec):
+            config, state = spec
+            return (config, {k: v.detach().cpu() for k, v in state.items()})
+
+        player, opponent = on_cpu(player), on_cpu(opponent)
+        tasks = [
+            MatchTask(
+                game_name=self.game_name, player=player, opponent=opponent,
+                simulations=simulations, games=count * 2,
+                opening_plies=opening_plies, seed=seed + index,
+            )
+            for index, count in enumerate(split_games(pairs, self.workers))
+        ]
+
+        wins = draws = losses = 0
+        for w, d, l in self._pool.map(_run_match, tasks):
+            wins += w
+            draws += d
+            losses += l
+        return MatchResult(names[0], names[1], wins, draws, losses)

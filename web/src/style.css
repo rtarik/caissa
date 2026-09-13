@@ -136,6 +136,7 @@ h1 {
   margin: 0 auto;
 }
 .grid-7 { grid-template-columns: repeat(7, 1fr); gap: 10px; }
+.grid-7.tiles { gap: 5px; }
 .grid-8 { grid-template-columns: repeat(8, 1fr); gap: 5px; }
 .grid-9 { grid-template-columns: repeat(9, 1fr); gap: 0; }
 
@@ -320,3 +321,39 @@ footer {
   text-align: center;
   line-height: 1.7;
 }
+
+/* Isola: a tiled floor that is demolished as the game goes on. Squares rather
+   than holes, because what matters is whether the ground is still there. */
+.tiles { gap: 5px; }
+.tiles .cell {
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--board) 62%, white 8%);
+  transition: background 200ms ease, opacity 200ms ease;
+}
+.tiles .cell.gone { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--board) 50%, black); }
+
+/* Pieces are drawn on the tile rather than replacing it, so a piece standing on
+   the last square still reads as standing on something. */
+.tiles .cell.piece::after {
+  content: "";
+  position: absolute;
+  inset: 16%;
+  border-radius: 50%;
+  background: currentColor;
+}
+.tiles .cell.you { color: var(--you); }
+.tiles .cell.engine { color: var(--engine); }
+/* Where the piece came from, while the demolition is still being chosen. */
+.tiles .cell.ghost { color: var(--muted); }
+.tiles .cell.ghost::after { opacity: 0.3; }
+
+/* Phase one offers the squares you can step to... */
+.board.tiles:not(.locked) .cell.reach { background: color-mix(in srgb, var(--you) 26%, var(--board)); }
+.board.tiles:not(.locked) .cell.reach:hover { background: color-mix(in srgb, var(--you) 52%, var(--board)); transform: none; }
+/* ...phase two, the squares you can remove. */
+.board.tiles:not(.locked) .cell.doomed:hover {
+  background: color-mix(in srgb, var(--engine) 45%, var(--board));
+  transform: none;
+}
+.board.tiles:not(.locked) .cell.doomed:hover::before { content: none; }
+.board.tiles:not(.locked) .cell.playable:hover::before { content: none; }

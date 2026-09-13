@@ -39,6 +39,23 @@ class NetworkConfig:
     value_channels: int = 8
     #: Hidden units in the value head's MLP.
     value_hidden: int = 128
+    #: How the policy head produces its outputs.
+    #:
+    #: ``"dense"`` flattens the trunk and projects to ``action_size`` with a
+    #: linear layer. Right when the actions have no spatial meaning - Connect 4's
+    #: seven columns are not its forty-two cells.
+    #:
+    #: ``"conv"`` emits ``action_size / squares`` feature planes and reads the
+    #: action off directly, which requires the action space to *be* a product of
+    #: board squares and something else. Isola's 392 is 8 directions x 49
+    #: squares; chess's 4672 is 73 move types x 64 squares. Where it applies it
+    #: is both far smaller and a better fit: a dense head for Isola is 614k
+    #: parameters against 38k, and the convolutional one keeps the destroyed
+    #: square spatially adjacent to its own neighbourhood instead of scattering
+    #: it through a matrix.
+    #:
+    #: Defaults to dense so that networks trained before this existed still load.
+    policy_head: str = "dense"
 
 
 class ResidualBlock(nn.Module):
@@ -102,13 +119,32 @@ class PolicyValueNet(nn.Module):
         # map onto board squares - chess's 4672 being 64 squares x 73 move types
         # - a convolutional head emitting those planes directly is roughly
         # sixteen times smaller and slightly faster. See PLAN.md.
-        self.policy_head = nn.Sequential(
-            nn.Conv2d(channels, config.policy_channels, 1, bias=False),
-            nn.BatchNorm2d(config.policy_channels),
-            nn.ReLU(inplace=True),
-            nn.Flatten(),
-            nn.Linear(config.policy_channels * squares, action_size),
-        )
+        if config.policy_head == "conv":
+            if action_size % squares != 0:
+                raise ValueError(
+                    f"a convolutional policy head needs the action space to be a "
+                    f"multiple of the {squares} board squares, but got {action_size}"
+                )
+            # One plane per action type, read off at each square. The flattened
+            # order is plane-major, so action = type * squares + square - which
+            # is exactly how the games that use this encode their actions.
+            self.policy_head = nn.Sequential(
+                nn.Conv2d(channels, channels, 3, padding=1, bias=False),
+                nn.BatchNorm2d(channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(channels, action_size // squares, 1),
+                nn.Flatten(),
+            )
+        elif config.policy_head == "dense":
+            self.policy_head = nn.Sequential(
+                nn.Conv2d(channels, config.policy_channels, 1, bias=False),
+                nn.BatchNorm2d(config.policy_channels),
+                nn.ReLU(inplace=True),
+                nn.Flatten(),
+                nn.Linear(config.policy_channels * squares, action_size),
+            )
+        else:
+            raise ValueError(f"unknown policy head: {config.policy_head!r}")
 
         # Value head. The tanh is not decoration: it bounds the output to
         # [-1, 1], which is exactly the range of the thing being predicted, since

@@ -13,11 +13,13 @@
 import { describe, expect, it } from "vitest";
 import { Connect4 } from "../src/games/connect4";
 import { Gomoku } from "../src/games/gomoku";
+import { Isola } from "../src/games/isola";
 import { Reversi } from "../src/games/reversi";
 import type { Game } from "../src/games/types";
 import { MCTS, UniformEvaluator, argmax } from "../src/engine/mcts";
 import connect4Vectors from "./connect4-vectors.json";
 import gomokuVectors from "./gomoku-vectors.json";
+import isolaVectors from "./isola-vectors.json";
 import reversiVectors from "./reversi-vectors.json";
 
 interface SearchCase {
@@ -31,6 +33,7 @@ const SUBJECTS: { game: Game<unknown>; searches: SearchCase[] }[] = [
   { game: new Connect4() as Game<unknown>, searches: connect4Vectors.searches },
   { game: new Reversi() as Game<unknown>, searches: reversiVectors.searches },
   { game: new Gomoku() as Game<unknown>, searches: gomokuVectors.searches },
+  { game: new Isola() as Game<unknown>, searches: isolaVectors.searches },
 ];
 
 function engine(game: Game<unknown>, simulations: number) {

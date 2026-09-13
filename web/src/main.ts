@@ -28,6 +28,8 @@ let thinking = false;
 let ready = false;
 let engineInfo = "";
 let report: Extract<FromEngine, { kind: "move" }> | null = null;
+/** Half a turn, for games that ask for more than one decision. */
+let pending: number | null = null;
 let error: string | null = null;
 
 const worker = new Worker(new URL("./engine/worker.ts", import.meta.url), {
@@ -95,6 +97,7 @@ function play(action: number): void {
   if (thinking || !ready || finished() || !humanToMove()) return;
   if (!game.legalActions(state())[action]) return;
   report = null;
+  pending = null;
   moves = [...moves, action];
   render();
   advance();
@@ -130,6 +133,7 @@ function advance(): void {
 function reset(): void {
   moves = [];
   report = null;
+  pending = null;
   thinking = false;
   render();
   advance();
@@ -142,6 +146,7 @@ function selectGame(next: LadderEntry): void {
   view = VIEWS[entry.key];
   moves = [];
   report = null;
+  pending = null;
   thinking = false;
   document.title = `Caissa — ${entry.title}`;
   loadEngine();
@@ -195,10 +200,20 @@ const analysisEl = document.getElementById("analysis")!;
 const aboutEl = document.getElementById("about")!;
 
 boardEl.addEventListener("click", (event) => {
-  const target = (event.target as HTMLElement).closest<HTMLElement>("[data-action]");
+  const target = (event.target as HTMLElement).closest<HTMLElement>(
+    "[data-action], [data-square]",
+  );
   if (!target) return;
-  const action = view.actionFor(target);
-  if (action !== null) play(action);
+
+  const selection = view.select(target, context());
+  if (!selection) return;
+  if (selection.kind === "action") {
+    pending = null;
+    play(selection.action);
+  } else {
+    pending = selection.pending;
+    render();
+  }
 });
 gamesEl.addEventListener("click", (event) => {
   const target = (event.target as HTMLElement).closest<HTMLElement>("[data-game]");
@@ -228,14 +243,18 @@ function renderTabs(): void {
   }).join("");
 }
 
-function render(): void {
+function context() {
   const locked = thinking || finished() || !humanToMove() || !ready;
-  const context = { game, state: state(), moves, humanFirst, locked };
+  return { game, state: state(), moves, humanFirst, locked, pending };
+}
+
+function render(): void {
+  const ctx = context();
 
   renderTabs();
-  boardEl.className = `board ${view.layout}${locked ? " locked" : ""}`;
-  boardEl.innerHTML = view.board(context);
-  statusEl.innerHTML = statusText() + view.detail(context);
+  boardEl.className = `board ${view.layout}${ctx.locked ? " locked" : ""}`;
+  boardEl.innerHTML = view.board(ctx);
+  statusEl.innerHTML = statusText() + view.detail(ctx);
   analysisEl.innerHTML = analysisPanel();
   aboutEl.innerHTML = `
     <h2>${entry.title}</h2>
@@ -258,6 +277,9 @@ function statusText(): string {
   }
   if (thinking) return `<span class="muted">Thinking…</span>`;
   if (humanToMove() && mustPass()) return `<span class="muted">No legal move — passing.</span>`;
+  if (humanToMove() && pending !== null) {
+    return `<span class="dot you"></span> Now choose a square to destroy.`;
+  }
   return humanToMove()
     ? `<span class="dot you"></span> Your move.`
     : `<span class="dot engine"></span> Engine to move.`;

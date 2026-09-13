@@ -301,3 +301,37 @@ def test_evaluator_moves_the_network_when_asked(game, net):
     assert evaluator.device == torch.device("cpu")
     priors, _ = evaluator.evaluate(game, game.initial_state())
     assert priors.sum() == pytest.approx(1.0)
+
+
+def test_convolutional_policy_head_needs_a_divisible_action_space(game):
+    """It reads the action off the board, so the actions must *be* board squares.
+
+    Connect 4's seven columns are not its forty-two cells, so the head cannot
+    apply and says so rather than silently reshaping into nonsense.
+    """
+    with pytest.raises(ValueError, match="multiple of"):
+        PolicyValueNet.for_game(game, NetworkConfig(policy_head="conv"))
+
+
+def test_convolutional_policy_head_is_far_smaller_where_it_applies():
+    """Isola's 392 actions are 8 directions x 49 squares, so it applies there."""
+    from caissa.games.isola import Isola
+
+    isola = Isola()
+    dense = PolicyValueNet.for_game(isola, NetworkConfig(policy_head="dense"))
+    conv = PolicyValueNet.for_game(isola, NetworkConfig(policy_head="conv"))
+
+    logits, value = conv(torch.zeros(2, isola.input_planes, *isola.board_shape))
+    assert logits.shape == (2, isola.action_size)
+    assert value.shape == (2,)
+    assert conv.parameter_count() < dense.parameter_count() / 2
+
+
+def test_unknown_policy_head_is_refused(game):
+    with pytest.raises(ValueError, match="unknown policy head"):
+        PolicyValueNet.for_game(game, NetworkConfig(policy_head="magic"))
+
+
+def test_dense_remains_the_default(game):
+    """So networks trained before the convolutional head existed still load."""
+    assert NetworkConfig().policy_head == "dense"

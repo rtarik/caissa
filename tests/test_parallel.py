@@ -161,3 +161,71 @@ def test_pool_refuses_to_start_inside_a_worker(game, monkeypatch):
     monkeypatch.setattr(multiprocessing, "parent_process", lambda: object())
     with pytest.raises(RuntimeError, match="__main__"):
         ParallelSelfPlay(game.name, NET, SEARCH, PLAY, workers=2).__enter__()
+
+
+# ------------------------------------------------------------- parallel arena
+
+
+def spec(game, seed: int):
+    """A (config, state dict) pair, which is what crosses the process boundary."""
+    torch.manual_seed(seed)
+    net = PolicyValueNet.for_game(game, NET)
+    return NET, net.state_dict()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("workers", [1, 2])
+def test_parallel_arena_reproduces_a_sequential_match(game, workers):
+    """The fast path must return the match the slow path would.
+
+    A split that quietly changed the pairing or the openings would shift the
+    measured Elo, and every conclusion in the project rests on those numbers.
+    """
+    from caissa.arena import Player, play_match
+    from caissa.parallel import ParallelArena
+
+    first, second = spec(game, 0), spec(game, 1)
+
+    expected = []
+    for index, pairs in enumerate(split_games(4 // 2, workers)):
+        with single_threaded():
+            net_a = PolicyValueNet.for_game(game, first[0])
+            net_a.load_state_dict(first[1])
+            net_b = PolicyValueNet.for_game(game, second[0])
+            net_b.load_state_dict(second[1])
+            expected.append(play_match(
+                game,
+                Player("player", NetworkEvaluator(net_a), SEARCH.simulations),
+                Player("opponent", NetworkEvaluator(net_b), SEARCH.simulations),
+                pairs * 2, np.random.default_rng(100 + index), 2,
+            ))
+
+    with ParallelArena(game.name, NET, SEARCH, PLAY, workers=workers) as arena:
+        actual = arena.match(first, second, games=4,
+                             simulations=SEARCH.simulations, seed=100)
+
+    assert actual.wins == sum(r.wins for r in expected)
+    assert actual.draws == sum(r.draws for r in expected)
+    assert actual.losses == sum(r.losses for r in expected)
+    assert actual.games == 4
+
+
+@pytest.mark.slow
+def test_parallel_arena_keeps_pairs_whole(game):
+    """Workers get whole colour-reversed pairs, never half of one.
+
+    Splitting mid-pair would put the two halves on different workers with
+    different openings, and the variance reduction pairing exists for would be
+    lost - silently, since the result would still look like a match.
+    """
+    from caissa.parallel import ParallelArena
+
+    first, second = spec(game, 0), spec(game, 1)
+    with ParallelArena(game.name, NET, SEARCH, PLAY, workers=3) as arena:
+        result = arena.match(first, second, games=6,
+                             simulations=SEARCH.simulations, seed=0)
+    assert result.games == 6
+
+    with pytest.raises(ValueError, match="at least two games"):
+        with ParallelArena(game.name, NET, SEARCH, PLAY, workers=2) as arena:
+            arena.match(first, second, games=1, simulations=SEARCH.simulations, seed=0)
