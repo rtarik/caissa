@@ -13,6 +13,7 @@ import pytest
 
 from caissa.evaluator import UniformEvaluator
 from caissa.games.connect4 import COLS, Connect4
+from caissa.games.dotsandboxes import LINES, DotsAndBoxes
 from caissa.mcts import MCTS, MCTSConfig
 from caissa.selfplay import SelfPlayConfig, Sample, augment, generate, play_game
 
@@ -191,3 +192,53 @@ def test_moves_are_sampled_from_the_policy_not_argmaxed(game):
 
     assert set(played) == {0, 1}, f"only ever played {set(played)}"
     assert 0.2 < played.count(1) / len(played) < 0.6, "not following the weights"
+
+
+# -------------------------------------------------------------- random openings
+
+
+class FirstLine:
+    """Draws the lowest-numbered open line: legal, instant and deterministic."""
+
+    def __init__(self, game):
+        self.game = game
+
+    def run(self, state, temperature=1.0, add_noise=True):
+        policy = np.zeros(self.game.action_size)
+        policy[np.flatnonzero(self.game.legal_actions(state))[0]] = 1.0
+        return policy, 0.0
+
+
+def opening_lengths(config, seeds):
+    """How many plies each game spent in a random opening.
+
+    Dots & Boxes makes this exact: every game is sixty lines, so whatever the
+    recorded positions fall short by is the random opening - and the first
+    recorded board must already show that many lines drawn.
+    """
+    game = DotsAndBoxes()
+    lengths = []
+    for seed in seeds:
+        samples = play_game(game, FirstLine(game), config, rng=np.random.default_rng(seed))
+        skipped = LINES - len(samples)
+        assert samples[0].encoded[0].sum() == skipped, "recording began before the opening ended"
+        lengths.append(skipped)
+    return lengths
+
+
+def test_random_openings_are_played_but_not_recorded():
+    """Nobody searched the random moves, so they must not become training examples."""
+    config = SelfPlayConfig(random_opening_share=1.0, random_opening_plies=12)
+    lengths = opening_lengths(config, range(100))
+    assert min(lengths) == 1
+    assert max(lengths) == 12
+
+
+def test_random_openings_start_only_the_configured_share_of_games():
+    lengths = opening_lengths(SelfPlayConfig(random_opening_share=0.25), range(200))
+    share = sum(length > 0 for length in lengths) / len(lengths)
+    assert 0.15 < share < 0.35
+
+
+def test_no_random_openings_unless_asked():
+    assert set(opening_lengths(SelfPlayConfig(), range(20))) == {0}

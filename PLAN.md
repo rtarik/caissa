@@ -507,8 +507,9 @@ is why it needed the neighbourhood restriction and Isola does not.
 - [x] Tests: 271 Python and 68 TypeScript; mutations caught 15/15 in Python and 10/10 in
       TypeScript
 - [x] Trained and exported — 40 iterations of 100 games at 300 simulations, interrupted after
-      iteration 15 and resumed. The iteration-40 checkpoint ships, and the page was checked
-      against it: handed a box on three sides, the engine takes it and says it moves again.
+      iteration 15 and resumed. The iteration-40 checkpoint shipped first (gen55 has since
+      replaced it — Phase 8b), and the page was checked against it: handed a box on three
+      sides, the engine takes it and says it moves again.
 - [x] `scripts/evaluate.py --workers` plays a match across the pool, so a 400-game match is
       minutes rather than most of an hour
 
@@ -526,14 +527,40 @@ before building was 2¼–2½ h.
 
 ### Phase 8b — Observed in play
 
-Handed a box in the opening, the engine usually declines it: it takes 31% at the page's default
-strength and 36% at *Careful*. A declined box is still there for the person to take back, so
-the cost is mostly that beginner blunders go unpunished. See the Results entry.
+Handed a box in the opening, the gen40 engine usually declined it: it took 31% at the page's
+default strength and 36% at *Careful*. A declined box is still there for the person to take
+back, so the cost is mostly that beginner blunders go unpunished. See the Results entries.
 
-- [ ] Supply positions self-play never reaches — occasional random or deliberately bad moves
-      early in self-play games — so gifts appear in the training data
-- [ ] Save the replay buffer with checkpoints, or rebuild it before training resumes, so an
-      interrupted run continues its data rather than restarting it
+**Why the existing exploration could not reach these positions.** Root noise and the
+temperature window both vary the agent's choice *among moves search already rates*. Handing
+over a box is never among them, so no amount of either produces a gift. What has to change is
+where games start. A random opening is the simplest way, and needs no knowledge of the game —
+but it only helps if it reaches the positions in question: with 1–16 random plies, 26% of
+openings leave a box on offer; with 1–20, 38%.
+
+- [x] **Measured first:** `scripts/gifts.py` hands each network a box after 2–14 plies of
+      sensible play and counts how often it takes it. gen40: 30% on the policy alone, 40.5%
+      with 200 simulations. It reproduces the collapse from gen15 (55.5%) to gen20 (13%) that
+      the one-off probe found.
+- [x] **Random openings in self-play** (`--random-openings`, `--random-opening-plies`): a share
+      of games starts from a position reached by random moves, and only the positions after
+      them are recorded — nobody searched the random moves, and the result that follows would
+      credit or blame the players for choices they never made. Game-agnostic: it reuses the
+      arena's random opening.
+- [x] `--min-buffer` holds training back until the replay buffer has refilled, so a resumed run
+      does not spend its first iterations memorising. (Saving the buffer instead would add
+      about 1.3 GB to every checkpoint at this size.)
+- [x] Tests: 276 Python. Six deliberate bugs in the new code, all caught — one of them, a worker
+      that silently drops the opening settings, only by the new parallel-equivalence case.
+- [x] Fine-tuned from gen40 with half the games opening randomly (1–20 plies), 15 iterations.
+      gen55 ships: +186 Elo over gen40 in 400 games, 90% of traps with search, and its policy
+      alone takes 50% of handed-over boxes, up from 30% — though search no longer adds to that.
+- [ ] A score head: the network also predicts the final margin, and search adds a small share
+      of that prediction to the value, so that when the chances of winning are equal the agent
+      prefers the bigger win. The fine-tuning showed the blind spot is an objective problem, not
+      a data problem — games here are won by a median of 14 boxes, so an agent rewarded only
+      for winning is right not to care about one. KataGo does this; Reversi's disc count would
+      use it too. Deferred.
 - [ ] Count traps in the agent's own games, to test whether rarity is why the policy never
       learned to decline
 - [ ] A direct gen30 vs gen15 match, to settle whether the buffer reset slowed iterations 16–30
@@ -767,10 +794,9 @@ after iteration 15 and resumed from the gen15 checkpoint.
 **Chained steps overstated the progress.** The five matches after gen15 add up to +296 Elo.
 Played directly over 400 games, gen40 against gen15 is +291 -109 (72.8%): **+171** [+134,
 +211]; gen40 against gen30 is +264 -136 (66.0%): **+115** [+80, +153], where the chain says
-+156. The chain carries about ±150 Elo of compounded uncertainty, so the gaps may be partly
-chance, but both point the expected way: a network trained on its predecessors' games tends
-to beat its predecessor by more than that margin carries forward. That is what the log's
-"assumes transitivity" is warning about. Even the fastest stretch, +115 over the last ten
++156. The chain carries about ±150 Elo of compounded uncertainty, so the gaps may be pure
+chance — and the fine-tuning run below erred the other way, chaining to +84 where a direct
+match found +186. That is what the log's "assumes transitivity" is warning about. Even the fastest stretch, +115 over the last ten
 iterations, is under 60 per five — below the ~69 Elo a 100-game match can resolve, which is
 why four of those five matches looked flat. The run was still improving when it stopped.
 
@@ -837,7 +863,7 @@ very thing a buffer is for: its older games, from weaker networks, are where box
 over, and a buffer holding only the newest games has none to learn from. (The resumed process
 also restarts the log's cumulative Elo from zero; that total is not in the checkpoint either.)
 
-**The shipped engine often declines a box handed to it.** Take a few plies of sensible play,
+**The gen40 engine often declines a box handed to it.** Take a few plies of sensible play,
 then one blunder — a line that leaves a box on three sides. Taking that box is right: declining
 only hands the same box to the opponent. Over 200 such positions:
 
@@ -858,6 +884,50 @@ head carries that lesson into openings where it does not apply.
 
 Value loss also *rose* over iterations 3–15, from 0.57 to 0.63, while every arena match showed
 large gains — in self-play the loss is measured against a target that moves with the agent.
+
+### Dots & Boxes, fine-tuning with random openings (gen40 → gen55)
+
+Resumed from gen40 with half the self-play games opening with 1–20 random plies. The first
+three iterations only refilled the buffer — random openings record fewer positions a game,
+so it took three rather than the two planned — and iterations 44–55 trained.
+
+| | gifts taken: policy alone | gifts taken: 200 sims | endgames / traps, 300 sims | arena, 100 games |
+|---|---|---|---|---|
+| gen40 | 30.0% | 40.5% | 98.5% / 88% | — |
+| gen45 | 39.0% | 57.0% | 99.0% / 80% | +21 vs gen40 |
+| gen50 | 45.5% | 51.5% | 99.5% / 86% | +63 vs gen45 |
+| gen55 | 50.5% | 49.5% | 99.0% / **90%** | 0 vs gen50 |
+
+At gen55 the policy alone also declines the box in 10% of traps, where every earlier
+generation managed 0–4%.
+
+Played directly over 400 games, **gen55 beats gen40 +298 -102 (74.5%): +186 Elo** [+149, +228].
+The three 100-game steps added up to only +84 — the chain erred low this time, where on the
+first run it erred high. Opening half the games randomly cost normal play nothing measurable;
+whether it helped cannot be separated from twelve more iterations of training, which near the
+end of the first run were worth about +115 per ten. **gen55 ships.**
+
+**What the value head thinks one early box is worth**, over the same 200 gift positions: the
+position after taking the box, against the same lines with that box the opponent's instead.
+
+| | after taking | box given away | difference | taking valued higher |
+|---|---|---|---|---|
+| gen40 | +0.075 | +0.014 | +0.062 | 57% |
+| gen45 | +0.164 | +0.023 | +0.142 | 62% |
+| gen50 | +0.030 | −0.093 | +0.123 | 56% |
+| gen55 | +0.043 | +0.118 | −0.075 | 48% |
+
+**The value head is not misreading the board; it is indifferent, and nearly rightly so.** In
+16 gen55 self-play games at 100 simulations the final margins were 1, 1, 3, 5, 7, 9, 13, 13,
+15, 15, 15, 17, 17, 17, 17 and 21 boxes — median 14. Between players of this strength the game
+is decided by who controls the long chains, usually by double digits, and an early box changes
+the result only in the rare close game. A value target that records only who won therefore
+prices one box at close to nothing, and search, choosing between moves its value head rates
+equal, follows the prior. That is what the first table shows: the policy's habit of taking
+boxes grew from 30% to 50%, and search stopped adding anything to it. Random openings supplied
+the positions; they cannot supply a reason to care. The agent does what it was asked —
+maximise the chance of winning — and a person reads the result as a blunder because a person
+also counts the score.
 
 ### Names, and two deliberate deviations from the published games
 
@@ -1242,15 +1312,26 @@ not a substitute for the AlphaZero paper.
   the five arena matches after gen15 were not significant while the endgame score climbed every
   generation. The arena measures strength in the engines' own games, at a resolution set by
   its sample size; the yardstick measures one skill against the truth.
-- **Elo gains do not chain** — the five step results after gen15 summed to +296, and one direct
-  400-game match found +171. Each network is trained on its predecessors' games, so beating the
-  previous one by a margin says less than it seems about the one before that.
+- **Elo gains do not chain** — the five step results after gen15 summed to +296 where one direct
+  400-game match found +171; three steps of the fine-tuning run summed to +84 where the direct
+  match found +186. Wrong in both directions, so not a bias to correct for: each small step
+  carries its own ±70 Elo of noise, and adding steps adds their noise. Measure the span directly.
 - **An agent is only tested where its own play goes** — competent networks almost never hand
   each other a box early, so this one never learned what to do when a person does, and no
   arena match, self-play loss or endgame exam could show it. What the replay buffer holds
   decides what the network can still handle: gift-taking collapsed when the resumed run's
   buffer lost its older, weaker games. Positions the agent does not generate itself have to be
   supplied on purpose — randomised openings, or opponents other than itself.
+- **Exploring moves is not exploring positions** — root noise and temperature make the agent
+  try moves it half-likes, which is how it finds better ones. They cannot take it anywhere that
+  only a move it never considers leads to; changing where games start can. And what was not
+  searched must not be trained on: a random move has no search policy to imitate, and the
+  result that follows it reflects a choice nobody made.
+- **The objective decides what counts as a mistake** — an agent rewarded only for winning is
+  indifferent to the margin, so when games are decided by a median of 14 boxes it has no
+  reason to take a free one, and it doesn't. Better data could not change that; only a
+  different objective could. KataGo adds a score term to its search for exactly this reason:
+  when the chances of winning are equal, prefer the bigger win.
 
 ---
 

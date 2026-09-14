@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from caissa.arena import random_opening
 from caissa.mcts import MCTS
 
 
@@ -38,6 +39,14 @@ class SelfPlayConfig:
     temperature_moves: int = 8
     #: Temperature applied during those opening plies.
     temperature: float = 1.0
+    #: Share of games that begin from a random position instead of the empty board.
+    #: Temperature and root noise only vary among moves search already likes, so a
+    #: position reachable only through a move it would never play - a box handed
+    #: over early, in Dots & Boxes - never appears in the data, and the network
+    #: never learns what it is worth. A random start supplies such positions.
+    random_opening_share: float = 0.0
+    #: The longest random opening, in plies. Each draws its length from 1 to this.
+    random_opening_plies: int = 16
 
 
 @dataclass
@@ -64,9 +73,16 @@ def play_game(game, mcts: MCTS, config: SelfPlayConfig | None = None,
     rng = rng if rng is not None else np.random.default_rng()
 
     state = game.initial_state()
+    if config.random_opening_share and rng.random() < config.random_opening_share:
+        # The random moves themselves are not recorded. Nobody searched them, so
+        # there is no policy target, and the result that follows would credit or
+        # blame the players for moves they never chose. From the position they
+        # reach, this is ordinary self-play and every position gets honest targets.
+        plies = int(rng.integers(1, config.random_opening_plies + 1))
+        state = random_opening(game, plies, rng)
     positions: list[tuple[np.ndarray, np.ndarray, int]] = []
 
-    ply = 0
+    ply = 0  # counts search's moves, so a random start still gets the temperature window
     while (outcome := game.terminal_value(state)) is None:
         temperature = config.temperature if ply < config.temperature_moves else 0.0
         # Noise is on: this is data generation, and the point is variety. During

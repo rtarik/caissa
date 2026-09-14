@@ -46,6 +46,14 @@ def main() -> None:
                         help="conv reads the action off the board; needs the action "
                              "space to be a multiple of the squares (Isola, chess)")
     parser.add_argument("--buffer", type=int, default=120_000)
+    parser.add_argument("--min-buffer", type=int, default=4_000,
+                        help="positions to collect before training starts; with --resume, "
+                             "set it high to refill the buffer before the network moves")
+    parser.add_argument("--random-openings", type=float, default=0.0,
+                        help="share of self-play games that start from a random position, "
+                             "reaching positions the agent's own play never would")
+    parser.add_argument("--random-opening-plies", type=int, default=16,
+                        help="longest random opening; each draws its length from 1 to this")
     parser.add_argument("--workers", type=int, default=10,
                         help="self-play processes; 1 runs in-process (easier to debug)")
     parser.add_argument("--device", default=None,
@@ -74,12 +82,14 @@ def main() -> None:
         games_per_iteration=args.games,
         train_steps_per_iteration=args.train_steps,
         buffer_capacity=args.buffer,
+        min_buffer_before_training=args.min_buffer,
         workers=args.workers,
         train_device=args.device,
         network=NetworkConfig(blocks=args.blocks, channels=args.channels,
                               policy_head=args.policy_head),
         mcts=MCTSConfig(simulations=args.simulations),
-        selfplay=SelfPlayConfig(),
+        selfplay=SelfPlayConfig(random_opening_share=args.random_openings,
+                                random_opening_plies=args.random_opening_plies),
         train=TrainConfig(),
         gate=GateConfig(enabled=args.gate, games=args.gate_games,
                         threshold=args.gate_threshold,
@@ -102,12 +112,15 @@ def main() -> None:
             # Resuming without them restarts AdamW cold, which shows up as a
             # visible stumble in training immediately after every resume.
             learner.load(args.resume)
-            print(f"resumed from {args.resume} at iteration {learner.iteration}; "
-                  f"the replay buffer starts empty and refills over the first few "
-                  f"iterations", flush=True)
+            print(f"resumed from {args.resume} at iteration {learner.iteration}; the "
+                  f"replay buffer is not in the checkpoint, so it starts empty and "
+                  f"training waits until it holds {args.min_buffer:,} positions", flush=True)
 
         print(f"{args.game}: {learner.net.parameter_count():,} parameters, "
               f"{args.simulations} simulations per move, {args.workers} workers")
+        if args.random_openings:
+            print(f"{args.random_openings:.0%} of games start from a random opening of "
+                  f"1-{args.random_opening_plies} plies", flush=True)
         if args.eval_every:
             print(f"progress measured every {args.eval_every} iterations over "
                   f"{args.eval_games} games "

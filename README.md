@@ -53,6 +53,13 @@ double-dealing traps that greedy play falls into:
 .venv/bin/python scripts/endgames.py models/dotsandboxes-latest.pt
 ```
 
+`scripts/gifts.py` checks the other end of the game: how often a checkpoint takes a box handed
+to it early, a position its own self-play almost never produces.
+
+```bash
+.venv/bin/python scripts/gifts.py models/dotsandboxes-gen0040.pt models/dotsandboxes-latest.pt
+```
+
 ## The web app
 
 Export a checkpoint, regenerate the cross-language test vectors, then run it:

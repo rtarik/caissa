@@ -23,6 +23,7 @@ from caissa.train import TrainConfig
 NET = NetworkConfig(blocks=1, channels=8)
 SEARCH = MCTSConfig(simulations=6)
 PLAY = SelfPlayConfig(temperature_moves=4)
+OPENINGS = SelfPlayConfig(temperature_moves=4, random_opening_share=1.0, random_opening_plies=6)
 
 
 @pytest.fixture
@@ -72,7 +73,7 @@ def test_pool_must_be_entered(game):
 # --------------------------------------------------------------- equivalence
 
 
-def sequential(game, net, games, seed):
+def sequential(game, net, games, seed, play=PLAY):
     """Exactly what one worker does, run in this process.
 
     One generator drives both the search and the move sampling. Using two would
@@ -82,12 +83,13 @@ def sequential(game, net, games, seed):
     with single_threaded():
         rng = np.random.default_rng(seed)
         mcts = MCTS(game, NetworkEvaluator(net), SEARCH, rng=rng)
-        return generate(game, mcts, games, PLAY, rng)
+        return generate(game, mcts, games, play, rng)
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("play", [PLAY, OPENINGS], ids=["plain", "random-openings"])
 @pytest.mark.parametrize("workers", [1, 2])
-def test_parallel_reproduces_sequential_runs_exactly(game, workers):
+def test_parallel_reproduces_sequential_runs_exactly(game, workers, play):
     """The fast path must generate the data the slow path would, in order.
 
     This covers three things at once: that a worker is equivalent to a sequential
@@ -104,9 +106,9 @@ def test_parallel_reproduces_sequential_runs_exactly(game, workers):
 
     expected = []
     for index, count in enumerate(split_games(2, workers)):
-        expected.extend(sequential(game, net, count, 100 + index))
+        expected.extend(sequential(game, net, count, 100 + index, play))
 
-    with ParallelSelfPlay(game.name, NET, SEARCH, PLAY, workers=workers) as pool:
+    with ParallelSelfPlay(game.name, NET, SEARCH, play, workers=workers) as pool:
         actual = pool.generate(net.state_dict(), games=2, seed=100)
 
     assert len(actual) == len(expected)
@@ -117,7 +119,7 @@ def test_parallel_reproduces_sequential_runs_exactly(game, workers):
 
     if workers > 1:
         # And the two workers must not have played the same game.
-        halves = [sequential(game, net, 1, 100 + i) for i in range(2)]
+        halves = [sequential(game, net, 1, 100 + i, play) for i in range(2)]
         assert not np.array_equal(halves[0][0].policy, halves[1][0].policy)
 
 
