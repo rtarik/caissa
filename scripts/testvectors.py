@@ -25,6 +25,21 @@ from caissa.evaluator import UniformEvaluator
 from caissa.games import GAMES
 from caissa.mcts import MCTS, MCTSConfig
 
+#: How many moves into a game the search vectors start, per game.
+#:
+#: Early positions for most games. Late ones for Dots & Boxes, because the only
+#: new thing its search does - keeping a value's sign across a bonus move - is
+#: invisible until simulations reach finished games. With a knowledge-free
+#: evaluator every unfinished position is worth exactly zero, and zero looks the
+#: same whichever way it is flipped, so early-position vectors would agree with a
+#: broken port.
+SEARCH_PLIES = {"dotsandboxes": (54, 58)}
+
+#: Simulation budgets for those searches, per game. Dots & Boxes gets larger ones
+#: for the same reason it gets endgames: a search only exercises the bonus-move
+#: sign rule once it reaches finished games, and eight simulations rarely do.
+SEARCH_SIMULATIONS = {"dotsandboxes": [60, 150, 400]}
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -51,6 +66,7 @@ def main() -> None:
             cases.append({
                 "moves": list(moves),
                 "legal": [int(v) for v in game.legal_actions(state)],
+                "toPlay": game.to_play(state),
                 "terminal": game.terminal_value(state),
                 "encoded": [int(v) for v in game.encode(state).ravel()],
             })
@@ -75,7 +91,8 @@ def main() -> None:
     while len(searches) < 40:
         state = game.initial_state()
         moves = []
-        for _ in range(int(rng.integers(0, 14))):
+        low, high = SEARCH_PLIES.get(game.name, (0, 14))
+        for _ in range(int(rng.integers(low, high))):
             if game.terminal_value(state) is not None:
                 break
             action = int(rng.choice(np.flatnonzero(game.legal_actions(state))))
@@ -83,7 +100,7 @@ def main() -> None:
             moves.append(action)
         if game.terminal_value(state) is not None:
             continue
-        simulations = int(rng.choice([8, 25, 60, 150]))
+        simulations = int(rng.choice(SEARCH_SIMULATIONS.get(game.name, [8, 25, 60, 150])))
         search = MCTS(game, UniformEvaluator(), MCTSConfig(simulations=simulations),
                       rng=mcts_rng)
         root = search.search(state, add_noise=False)

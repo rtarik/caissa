@@ -1,11 +1,13 @@
 /**
  * The browser's half of the `Game` contract.
  *
- * Deliberately the same shape as `src/caissa/games/base.py`, including the two
+ * Deliberately the same shape as `src/caissa/games/base.py`, including the
  * conventions that everything else depends on: positions are always described
- * from the point of view of the player about to move, and values are always that
- * player's result. Diverge from either and the network receives inputs it was
- * never trained on - while continuing to produce legal, plausible moves.
+ * from the point of view of the player about to move, values are always that
+ * player's result, and whose turn it is is stated by the game rather than
+ * worked out by counting moves. Diverge from any of them and the network receives
+ * inputs it was never trained on - while continuing to produce legal, plausible
+ * moves.
  */
 export interface Game<S> {
   readonly name: string;
@@ -15,8 +17,25 @@ export interface Game<S> {
   readonly boardShape: readonly [number, number];
   /** Feature planes produced by {@link encode}. */
   readonly inputPlanes: number;
+  /**
+   * The action that means "pass", for games that have one - Reversi does.
+   *
+   * Declared rather than guessed. The page used to assume a pass was the last
+   * action index, which is true for Reversi and false everywhere else: in Four in
+   * a Row, with only the seventh column open, it dropped the disc for you and
+   * announced that you had passed.
+   */
+  readonly passAction?: number;
 
   initialState(): S;
+  /**
+   * Which seat is to move: 0 for whoever moved first, 1 for the other.
+   *
+   * Mirrors `to_play` in `src/caissa/games/base.py`. Canonical perspective hides
+   * it, so it has to be stated: in Dots & Boxes a closed box earns another move,
+   * and counting moves would hand that bonus move to the wrong player.
+   */
+  toPlay(state: S): number;
   /** One entry per action, true where the move is legal. */
   legalActions(state: S): boolean[];
   apply(state: S, action: number): S;

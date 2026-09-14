@@ -19,8 +19,8 @@ A single simulation has four phases:
    maximises PUCT, until reaching a node that has not been expanded yet.
 2. **Expand** - ask the evaluator for that leaf's priors and value, and create a
    child for every legal move.
-3. **Back up** - push the value back along the path taken, flipping its sign at
-   every ply.
+3. **Back up** - push the value back along the path taken, flipping its sign
+   wherever the turn passed between one position and the next.
 4. Repeat, so the tree deepens where it matters.
 """
 
@@ -68,15 +68,21 @@ class Node:
     of the player to move at this node**, following the project convention.
     """
 
-    __slots__ = ("prior", "visit_count", "value_sum", "children", "state")
+    __slots__ = ("prior", "visit_count", "value_sum", "children", "state", "flip")
 
-    def __init__(self, prior: float, state=None):
+    def __init__(self, prior: float, state=None, flip: bool = True):
         #: The evaluator's probability for the move that led here.
         self.prior = prior
         self.visit_count = 0
         self.value_sum = 0.0
         self.children: dict[int, Node] = {}
         self.state = state
+        #: Whether the player to move here is a *different* player from the one
+        #: to move in the parent. True for every move of a game whose turns
+        #: alternate; False after a Dots & Boxes line that closed a box and earned
+        #: a bonus move. Every sign flip in the search is conditional on this,
+        #: because a value only changes sign when it changes hands.
+        self.flip = flip
 
     @property
     def expanded(self) -> bool:
@@ -140,12 +146,16 @@ class MCTS:
                      exploit                    explore
 
         **Q(a)** is what we have actually learned by searching: the mean result
-        of simulations through that child. Note the minus sign below. A child's
-        statistics are recorded from *its own* mover's perspective, and that is
-        the opponent of the player choosing here, so a result that is good for
-        them is bad for us. Dropping this negation produces an agent that
-        confidently walks into losing lines, and nothing else about the run will
-        look wrong.
+        of simulations through that child. Note the conditional negation below.
+        A child's statistics are recorded from *its own* mover's perspective.
+        Usually that is the opponent of the player choosing here, so a result
+        that is good for them is bad for us and has to be negated. Dropping that
+        negation produces an agent that confidently walks into losing lines, and
+        nothing else about the run will look wrong.
+
+        But not always. After a Dots & Boxes line that closes a box, the child's
+        mover is the *same* player, and negating their result would teach the
+        search that earning a bonus move is a disaster.
 
         **The second term** is optimism. It is large when the evaluator liked the
         move (``P``) and shrinks as the move accumulates visits (``1 + N``), so
@@ -164,7 +174,12 @@ class MCTS:
         best_score = -math.inf
         best_child = None
         for child in node.children.values():
-            exploit = -child.value() if child.visit_count else 0.0
+            if child.visit_count == 0:
+                exploit = 0.0
+            elif child.flip:
+                exploit = -child.value()  # the opponent's result, so ours is its negation
+            else:
+                exploit = child.value()   # a bonus move: still our own result
             explore = (
                 self.config.c_puct
                 * child.prior
@@ -192,27 +207,32 @@ class MCTS:
             return terminal
 
         priors, value = self.evaluator.evaluate(self.game, node.state)
+        seat = self.game.to_play(node.state)
         for action in np.flatnonzero(self.game.legal_actions(node.state)):
             action = int(action)
+            child = self.game.apply(node.state, action)
             node.children[action] = Node(
                 prior=float(priors[action]),
-                state=self.game.apply(node.state, action),
+                state=child,
+                flip=self.game.to_play(child) != seat,
             )
         return value
 
     def _backup(self, path: list[Node], value: float) -> None:
-        """Record ``value`` along the path from leaf to root, alternating sign.
+        """Record ``value`` along the path from leaf to root.
 
-        ``value`` arrives from the leaf's mover's point of view. Its parent is
-        the opponent, so the same outcome is worth the negation to them, and so
-        on alternately up the tree. This is the same convention as
-        ``terminal_value`` and is the direct reason every node's statistics can
-        be read without tracking whose turn it is.
+        ``value`` arrives from the leaf's mover's point of view. Each step up the
+        tree it is negated if - and only if - the turn passed on the way down,
+        because the same outcome is worth its negation to an opponent and exactly
+        the same to the player themselves. In a strictly alternating game that is
+        every step, which is the familiar alternation. In Dots & Boxes a run of
+        box-closing lines is a run of steps where the sign must *not* change.
         """
         for node in reversed(path):
             node.visit_count += 1
             node.value_sum += value
-            value = -value
+            if node.flip:
+                value = -value
 
     def _add_dirichlet_noise(self, root: Node) -> None:
         """Mix random noise into the root priors, to force exploration.

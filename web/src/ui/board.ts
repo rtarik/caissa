@@ -6,20 +6,21 @@ export type Grid = Uint8Array;
 /**
  * The board as a viewer sees it, with colours fixed.
  *
- * The engine's board flips sign every ply so the network always sees itself as
- * +1, which is exactly what a display must not do. Ply parity says who the mover
- * currently is, and that turns the canonical board back into stable colours.
+ * The engine's board flips sign whenever the turn passes, so the network always
+ * sees itself as +1 - which is exactly what a display must not do. The seat to
+ * move says who that +1 currently is, and turns the canonical board back into
+ * stable colours. (This used ply parity until Dots & Boxes made the two differ.)
  *
  * Derived rather than tracked, which matters in Reversi: discs change owner, so
  * a view built by remembering where each piece was placed would be wrong from
  * the first capture.
  */
-export function absoluteGrid<S>(game: Game<S>, state: S, ply: number): Grid {
+export function absoluteGrid<S>(game: Game<S>, state: S): Grid {
   const [height, width] = game.boardShape;
   const encoded = game.encode(state);
   const squares = height * width;
 
-  const mover = ply % 2 === 0 ? 1 : 2;
+  const mover = game.toPlay(state) === 0 ? 1 : 2;
   const opponent = 3 - mover;
 
   const grid = new Uint8Array(squares);

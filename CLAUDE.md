@@ -19,9 +19,12 @@ shipping, ahead of strength. Two consequences:
 ## Conventions that must not be broken
 
 Detailed in PLAN.md under *Core conventions*. In short: canonical perspective (board always
-seen from the mover's side, `apply()` flips the sign), mover-relative values (`+1` win for
-the player to move, so `terminal_value()` normally returns only `-1` or `0`), action masks
-rather than action lists, and symmetry policy permutations that exactly match their board
+seen from the mover's side; its sign flips whenever the turn passes), seats stated by
+`Game.to_play()` and never inferred by counting moves (Dots & Boxes gives a player several
+moves in a row, so every sign flip in search, self-play labels and the arena is conditional on
+the seat changing), mover-relative values (`+1` win for the player to move — and `+1` at a
+terminal is routine in games that don't end the instant someone wins), action masks rather
+than action lists, and symmetry policy permutations that exactly match their board
 permutations. Changing any of these after training starts means retraining from scratch.
 
 The algorithm is **game-agnostic**. Search and training code must never import a concrete

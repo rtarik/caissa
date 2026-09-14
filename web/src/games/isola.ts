@@ -52,6 +52,11 @@ export class Isola implements Game<IsolaState> {
     };
   }
 
+  toPlay(state: IsolaState): number {
+    // One compound action is one whole turn, so parity holds.
+    return state.ply % 2;
+  }
+
   legalActions(state: IsolaState): boolean[] {
     const legal = new Array<boolean>(ACTIONS).fill(false);
     for (let direction = 0; direction < DIRECTIONS.length; direction++) {

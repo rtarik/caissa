@@ -38,6 +38,11 @@ export class Gomoku implements Game<GomokuState> {
     return { board: new Int8Array(SQUARES), lastMove: null, ply: 0 };
   }
 
+  toPlay(state: GomokuState): number {
+    // Turns strictly alternate, so the ply's parity is the seat.
+    return state.ply % 2;
+  }
+
   legalActions(state: GomokuState): boolean[] {
     // Empty points near the existing stones. Free-style otherwise: none of the
     // opening handicaps some rulesets add to curb the first player's advantage.

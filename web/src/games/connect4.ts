@@ -33,6 +33,11 @@ export class Connect4 implements Game<Connect4State> {
     return { board: new Int8Array(ROWS * COLS), lastMove: null, ply: 0 };
   }
 
+  toPlay(state: Connect4State): number {
+    // Turns strictly alternate, so the ply's parity is the seat.
+    return state.ply % 2;
+  }
+
   legalActions(state: Connect4State): boolean[] {
     // A column accepts a piece exactly when its top cell is still empty.
     return Array.from({ length: COLS }, (_, col) => state.board[index(0, col)] === 0);

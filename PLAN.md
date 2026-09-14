@@ -101,8 +101,8 @@ scratch, so treat them as fixed unless there is a deliberate decision to revisit
 
 1. **Canonical perspective.** Every position is described from the point of view of the
    player about to move: their pieces `+1`, the opponent's `-1`. `Game.apply()` negates the
-   board on the way out so the flip is automatic. The network therefore learns one function
-   rather than one per side, and every self-play position trains both sides at once.
+   board whenever the turn passes, so the flip is automatic. The network therefore learns one
+   function rather than one per side, and every self-play position trains both sides at once.
 
 2. **Mover-relative values.** Every value answers *"how good is this for the player to
    move?"* — `+1` win, `-1` loss, `0` draw. Confusing this with an absolute "good for
@@ -124,6 +124,13 @@ scratch, so treat them as fixed unless there is a deliberate decision to revisit
    permutation — if it does not, augmentation pairs positions with the wrong move
    distributions and poisons training while everything still appears to run.
 
+5. **Seats are stated, never counted.** `Game.to_play()` says which player is to move. Search,
+   self-play labels and the arena negate a value only when the seat changes between one
+   position and the next — never merely because a move was made. For seven phases those were
+   the same thing, and Reversi and Isolation were each designed to keep them the same. Dots &
+   Boxes, where closing a box earns another move, is the game that separated them: see
+   Phase 8.
+
 ---
 
 ## Game ladder
@@ -137,7 +144,7 @@ an arbitrary list.
 | Reversi | **Pass moves** — no legal action does not mean the game is over. 8-fold symmetry. | 65 | done |
 | Gomoku | Large action space; policy targets become very sparse. | 81 | done |
 | Isolation | **Compound actions** (move *and* remove a tile) — action encoding design. | 392 | done |
-| Dots & Boxes | **Accumulated score** rather than win/loss — what should the value head predict? | ~60 | |
+| Dots & Boxes | **Bonus moves** — closing a box earns another turn, so turns stop alternating. The result is a count. | 60 | *training* |
 | Chess | Everything at once, plus a supervised bootstrap. | 4672 | |
 
 Isola is deliberate rehearsal for chess: a compound action space is exactly the problem
@@ -436,7 +443,7 @@ games at 50 simulations and 450 games at 400 are the same total compute, but onl
 produces training targets that search actually improved. The premise of the whole algorithm
 is that search quality creates the learning signal.
 
-### Phase 7 — Isola — *training*
+### Phase 7 — Isola — **done**
 
 - [x] Isola rules on 7x7 (`src/caissa/games/isola.py`) — step to an adjacent square, then
       destroy any square still standing; a player with no legal action loses
@@ -449,12 +456,17 @@ is that search quality creates the learning signal.
 - [x] TypeScript port with rules and search validated against Python
 - [x] A two-phase board: step, then choose the demolition, with the origin shown as a ghost
 - [x] Tests, 238 Python and 50 TypeScript, mutation-verified against seven deliberate bugs
-- [ ] Trained and exported
+- [x] Trained and exported — 30 iterations of 90 games at 350 simulations. Its results were
+      never written down before the run's log was lost, so this phase has no Results entry;
+      the iteration-30 checkpoint is what ships.
 
 **Why a product and not two half-moves.** Splitting the turn into two plies — one for the
 step, one for the demolition — would be simpler to encode and would break the invariant
 everything else depends on: that `apply` hands the position to the *other* player, so the
 canonical flip happens exactly once per move. The product keeps one turn as one action.
+(Phase 8 later retired that invariant, because Dots & Boxes could not be bent to fit it. The
+product encoding stays, but for a different reason: it keeps each turn a single decision for
+the search.)
 
 **The compound action shows up again in the symmetries**, and nowhere else so far. Under a
 board rotation the destroyed square moves like any square *and* the direction rotates with
@@ -470,9 +482,64 @@ itself toward tractable positions: by ply 32 there are 30 legal actions, search 
 curriculum, and the endgame signal can propagate backward. Gomoku had no such escape, which
 is why it needed the neighbourhood restriction and Isola does not.
 
-### Phase 8+ — The rest of the ladder, then chess
+### Phase 8 — Dots & Boxes — **done**
 
-- [ ] Dots & Boxes
+- [x] Board confirmed before building: **5x5 boxes, 6x6 dots**, the standard. With 25 boxes a
+      draw is impossible. (Sizes are quoted both ways; "5x5" meaning dots would have been a
+      4x4-box game.)
+- [x] **The framework learns about turns.** `Game.to_play()` added to the contract and to every
+      game. Search nodes record whether the seat changed on the way in; selection, backup,
+      self-play value labels and arena credit all flip only when it did.
+- [x] Proved **bit-identical** for the four alternating games: their rules and search vectors
+      regenerate exactly from the seat-aware code, visit counts and root values included
+- [x] Rules on bitmasks (`src/caissa/games/dotsandboxes.py`): an expansion costs 0.04 ms
+      against 0.55 ms for a network evaluation — cheaper than Gomoku's rules at a third of the
+      branching
+- [x] An 11x11 lattice encoding with constant orientation planes, and symmetries that restore
+      those planes after a quarter-turn swaps horizontal lines for vertical ones
+- [x] Search checked against **brute-force exact play** on endgames with bonus moves
+- [x] TypeScript port, rules and search validated against Python, with search vectors drawn
+      from endgames so they actually reach finished games
+- [x] Lattice board, running score, and bonus-move status in the page
+- [x] Fixed a latent page bug: a forced pass was detected as "the only legal move is the last
+      action index", so in Four in a Row with only column 7 open the page played it for you and
+      announced a pass. Games now declare `passAction`; only Reversi has one.
+- [x] Tests: 271 Python and 68 TypeScript; mutations caught 15/15 in Python and 10/10 in
+      TypeScript
+- [x] Trained and exported — 40 iterations of 100 games at 300 simulations, interrupted after
+      iteration 15 and resumed. The iteration-40 checkpoint ships, and the page was checked
+      against it: handed a box on three sides, the engine takes it and says it moves again.
+- [x] `scripts/evaluate.py --workers` plays a match across the pool, so a 400-game match is
+      minutes rather than most of an hour
+
+**Why the framework had to change.** Reversi and Isolation each kept turns alternating by
+design — an explicit pass action, and a compound action fusing two half-moves — because
+everything downstream assumed it. Neither trick works here: a player can close box after box
+in one turn, so a "whole turn" action would be unboundedly long. Handled naively, each bonus
+move is scored as the opponent's, and the agent learns that completing a box is *bad for it*.
+Training would run perfectly while it learned to give boxes away.
+
+**Sizing, measured rather than estimated.** 2,380 games an hour at 300 simulations on 8
+workers, exactly 60 plies a game, flat across iterations. A 40 x 100-game run projects to 1.7 h
+of self-play, 0.3 h of evaluation and under 0.1 h of training — about 2.1 h. The estimate made
+before building was 2¼–2½ h.
+
+### Phase 8b — Observed in play
+
+Handed a box in the opening, the engine usually declines it: it takes 31% at the page's default
+strength and 36% at *Careful*. A declined box is still there for the person to take back, so
+the cost is mostly that beginner blunders go unpunished. See the Results entry.
+
+- [ ] Supply positions self-play never reaches — occasional random or deliberately bad moves
+      early in self-play games — so gifts appear in the training data
+- [ ] Save the replay buffer with checkpoints, or rebuild it before training resumes, so an
+      interrupted run continues its data rather than restarting it
+- [ ] Count traps in the agent's own games, to test whether rarity is why the policy never
+      learned to decline
+- [ ] A direct gen30 vs gen15 match, to settle whether the buffer reset slowed iterations 16–30
+
+### Phase 9+ — Chess
+
 - [ ] Chess representation (`python-chess`, AZ input planes, 73-plane move encoding)
 - [ ] Supervised bootstrap on Lichess games filtered to ~1800–1900
 - [ ] Self-play RL starting from the bootstrapped network
@@ -677,6 +744,120 @@ to a full board.
 
 It also now values an opponent's *open four* at exactly −1.00 and blocks anyway — which is
 correct play: an open four cannot be stopped, and the block is the best try.
+
+### Dots & Boxes, first training run (40 iterations, 100 games each, 300 simulations)
+
+4,000 games in 2.2 hours of compute, against the 2.1 sized in advance: 170 s an iteration, all
+but 15 s of it self-play, and under three minutes per evaluation. The run was interrupted
+after iteration 15 and resumed from the gen15 checkpoint.
+
+**Arena**, each checkpoint against the one five iterations earlier, 100 games:
+
+| | score | Elo, 95% interval |
+|---|---|---|
+| gen5 vs untrained | +82 -18 | **+263** [+186, +374] |
+| gen10 vs gen5 | +81 -19 | **+252** [+175, +358] |
+| gen15 vs gen10 | +77 -23 | **+210** [+137, +305] |
+| gen20 vs gen15 | +58 -42 | +56 [-12, +129], not significant |
+| gen25 vs gen20 | +54 -46 | +28 [-41, +99], not significant |
+| gen30 vs gen25 | +58 -42 | +56 [-12, +129], not significant |
+| gen35 vs gen30 | +58 -42 | +56 [-12, +129], not significant |
+| gen40 vs gen35 | +64 -36 | **+100** [+32, +177] |
+
+**Chained steps overstated the progress.** The five matches after gen15 add up to +296 Elo.
+Played directly over 400 games, gen40 against gen15 is +291 -109 (72.8%): **+171** [+134,
++211]; gen40 against gen30 is +264 -136 (66.0%): **+115** [+80, +153], where the chain says
++156. The chain carries about ±150 Elo of compounded uncertainty, so the gaps may be partly
+chance, but both point the expected way: a network trained on its predecessors' games tends
+to beat its predecessor by more than that margin carries forward. That is what the log's
+"assumes transitivity" is warning about. Even the fastest stretch, +115 over the last ten
+iterations, is under 60 per five — below the ~69 Elo a 100-game match can resolve, which is
+why four of those five matches looked flat. The run was still improving when it stopped.
+
+**Against exact play.** `scripts/endgames.py` solves endgames 6–12 lines from the end by brute
+force and scores how often the chosen move keeps a won position won. Every network sits the
+same exam — 200 endgames and 50 traps, seed 0 — so rows compare directly, but 50 traps carry
+roughly ±7 points of noise. Network entries are *policy alone / with 300 simulations*.
+
+| | all endgames | traps |
+|---|---|---|
+| random play | 23.6% | 11.7% |
+| greedy: take any box | 91.3% | 0.0% |
+| gen3 (the sizing run) | 29.5% / 61.0% | 2.0% / 16.0% |
+| gen5 | 82.0% / 94.5% | 4.0% / 40.0% |
+| gen10 | 91.0% / 95.5% | 0.0% / 42.0% |
+| gen15 | 92.0% / 97.0% | 0.0% / 54.0% |
+| gen20 | 93.0% / 96.5% | 2.0% / 62.0% |
+| gen25 | 92.0% / 98.0% | 2.0% / 64.0% |
+| gen30 | 93.0% / 98.5% | 0.0% / 76.0% |
+| gen35 | 94.5% / 99.5% | 0.0% / 84.0% |
+| gen40 | 94.0% / 98.5% | 2.0% / 88.0% |
+
+**The raw network stayed a greedy player; search learned to decline the box.** From gen10 on,
+the policy's first choice scores 91–94.5% on all endgames against greedy's 91.3%, and grabs
+the box in all but at most one of the 50 traps, right through gen40. The same network with 300
+simulations declines it more and more often: 40% at gen5, 54% at gen15, 76% at gen30, 88% at
+gen40. This is the failure this game was put on the ladder to show — greedy play beats weak
+play, so self-play can settle into it — and it was search that got out of it.
+
+**The value head learned double-dealing; the policy never did.** A one-off probe of the same 50
+traps:
+
+| | gen5 | gen10 | gen15 | gen20 | gen25 | gen30 | gen35 | gen40 |
+|---|---|---|---|---|---|---|---|---|
+| policy's prior on captures | 0.72 | 0.85 | 0.95 | 0.96 | 0.94 | 0.94 | 0.96 | 0.95 |
+| policy's prior on winning moves | 0.08 | 0.05 | 0.03 | 0.03 | 0.06 | 0.06 | 0.04 | 0.05 |
+| value head, one move deep, prefers a winning move | 16% | 18% | 30% | 40% | 40% | 70% | 54% | 78% |
+| search at 300 simulations declines | 40% | 42% | 54% | 62% | 64% | 76% | 84% | 88% |
+
+The policy grew *more* sure about capturing, never less, while the value head went from
+seeing the trap one time in six to four times in five. Search needs only a few simulations to
+try a move holding 5% of the prior; after that the value head decides.
+
+The policy was not short of a correct target, either. At gen40, search at 300 simulations puts
+80% of its visits on winning moves in these traps (gen15: 47%), and visit counts are exactly
+what the policy trains toward. It still puts 5% of its prior there. The likeliest reason is
+frequency: every ordinary capture in self-play teaches "take the box" at full strength, and a
+position like these is rare enough to be outvoted. Counting traps in the agent's own games
+would settle it; that has not been done.
+
+**A checkpoint is not the whole training state.** It holds the network and the optimiser, not
+the replay buffer. Iteration 15 drew its 1,000 x 256 training samples from 480,000 positions,
+ten iterations of games; iteration 16 drew the same number from the 48,000 of a single
+iteration, so each was seen about five times instead of half a time. Loss fell from 2.93 to
+2.42 (value 0.63 to 0.50) in one iteration. That is memorising 100 games, not learning: the
+loss is measured on the very samples being fitted. As the buffer refilled the loss climbed
+back — 2.42, 2.36, 2.40, 2.46, 2.49 over iterations 16–20 — and it is full again by iteration
+25. Did the reset cost strength? The endgame exam never dipped. The arena is ambiguous: gen40 is
++171 over gen15 but +115 over gen30, which would leave only about +56 for iterations 16–30 —
+if Elo chained, which it does not reliably do. But the reset did leave a mark where neither
+instrument looks. How often the network takes a box handed to it in the opening fell from 48%
+at gen15 to 9% at gen20 — see below — and never fully came back. The likely mechanism is the
+very thing a buffer is for: its older games, from weaker networks, are where boxes get handed
+over, and a buffer holding only the newest games has none to learn from. (The resumed process
+also restarts the log's cumulative Elo from zero; that total is not in the checkpoint either.)
+
+**The shipped engine often declines a box handed to it.** Take a few plies of sensible play,
+then one blunder — a line that leaves a box on three sides. Taking that box is right: declining
+only hands the same box to the opponent. Over 200 such positions:
+
+| | gen5 | gen10 | gen15 | gen20 | gen25 | gen30 | gen35 | gen40 |
+|---|---|---|---|---|---|---|---|---|
+| policy alone takes the box | 26% | 42% | 48% | 9% | 14% | 27% | 22% | 24% |
+| search at 200 simulations takes it | 32% | 26% | 31% | 9% | 17% | 33% | 25% | 31% |
+
+At the page's *Careful* setting, 600 simulations, gen40 takes 36%; gifts in chaotic
+random-play openings give the same picture. It is not uniform — in the position that first
+showed it, a corner box after three plies, gen40 takes the box with 95% of its visits, where
+gen25 valued taking it at −0.52 against +0.00 for declining. At gen10 and gen15 search took
+*fewer* boxes than the policy alone, which only happens when the value head steers away from
+the capture. A competent network almost never hands over a box early, so self-play never
+corrects this. One plausible reading, not tested: in the endgames the agent does see, whoever
+captures and must move again is often about to open a chain for the opponent, and the value
+head carries that lesson into openings where it does not apply.
+
+Value loss also *rose* over iterations 3–15, from 0.57 to 0.63, while every arena match showed
+large gains — in self-play the loss is measured against a target that moves with the agent.
 
 ### Names, and two deliberate deviations from the published games
 
@@ -959,7 +1140,7 @@ not a substitute for the AlphaZero paper.
 - **A compound action is a product, not a concatenation** — one turn stays one action, so
   `apply` still hands the position to the other player and the canonical flip still happens
   exactly once. Splitting the turn into two plies would be easier to encode and would break
-  the invariant every other component relies on.
+  the invariant every other component relied on — until Phase 8 retired it.
 - **Every transform must act on every component** — a board symmetry rotates the destroyed
   square *and* relabels the direction. Doing one produces a legal action on a plausible
   board and silently wrong training data, multiplied eight times over by augmentation.
@@ -1018,6 +1199,58 @@ not a substitute for the AlphaZero paper.
   +263 Elo. The gains had fallen to roughly 60-70 Elo per step and a 40-game sample cannot
   resolve better than 111. Before concluding that learning has stopped, check whether the
   instrument could still have detected it.
+
+### Phase 8
+
+- **Whose turn it is is a fact the game has to state** — canonical perspective deliberately
+  hides it, and for seven phases counting moves gave the right answer by coincidence. With
+  bonus moves, counting hands the bonus to the wrong player, labels a player's own capture as
+  a gift to their opponent, and credits the result to whoever happened to move last on an even
+  count. All three fail silently.
+- **Some games cannot be encoded around a framework's assumptions** — Reversi's pass and
+  Isolation's compound action each bent a game to fit "every move passes the turn". A chain of
+  captures has no bound, so this game could not be bent and the assumption had to go instead.
+  Recognising which situation you are in is most of the design work.
+- **A generalisation should be provably a no-op where it was not needed** — the seat-aware
+  search regenerates the four existing games' test vectors bit for bit. That is a far stronger
+  regression check than "the old tests still pass".
+- **A test vector that cannot fail proves nothing** — the first Dots & Boxes search vectors came
+  from early positions, where a knowledge-free search values everything at exactly zero. Zero
+  looks the same whichever way it is flipped, so they would have passed a port with the sign
+  rule inverted. Moved to endgames with larger budgets, 18 of 40 reach finished games, every one
+  through a bonus move.
+- **One lucky case hides a whole class of bug** — every game here is exactly sixty moves, so an
+  arena crediting results by counting moves agrees with the correct rule whenever a game ends
+  with seat 0 to move. The first arena test used a single game that did. Mutation testing caught
+  it, and the test now requires games that end on both seats.
+- **On the hot path, the rules are not a detail** — `apply` runs once for every child of every
+  expanded node, sixty at a time in this opening, while the network runs once per expansion.
+  Bitmasks put the rules under a tenth of the network's cost.
+- **Declare, don't infer** — the page decided a player must pass when their only legal move was
+  the last action index. That describes Reversi's pass, and also Four in a Row's seventh column.
+  Anything the code needs to know about a game belongs in the game's contract.
+- **A checkpoint is not the whole training state** — it held the network and the optimiser but
+  not the replay buffer, so the resumed run trained its first iteration on one iteration's
+  games instead of ten. The loss dropped by a sixth at once: memorising looks like progress on
+  a loss measured over the samples being fitted. Anything a run needs in order to continue
+  unchanged belongs in the checkpoint, or has to be rebuilt before training resumes.
+- **The value head and the policy head can learn different things** — on double-dealing traps
+  the policy grew *more* sure that taking the box is right while the value head learned that it
+  loses. Search joins them: the prior decides what gets looked at, the value decides what wins.
+  Scored without search, this network looks as if it never learned the game's central idea.
+- **An exact yardstick sees what a match between two versions of the agent cannot** — four of
+  the five arena matches after gen15 were not significant while the endgame score climbed every
+  generation. The arena measures strength in the engines' own games, at a resolution set by
+  its sample size; the yardstick measures one skill against the truth.
+- **Elo gains do not chain** — the five step results after gen15 summed to +296, and one direct
+  400-game match found +171. Each network is trained on its predecessors' games, so beating the
+  previous one by a margin says less than it seems about the one before that.
+- **An agent is only tested where its own play goes** — competent networks almost never hand
+  each other a box early, so this one never learned what to do when a person does, and no
+  arena match, self-play loss or endgame exam could show it. What the replay buffer holds
+  decides what the network can still handle: gift-taking collapsed when the resumed run's
+  buffer lost its older, weaker games. Positions the agent does not generate itself have to be
+  supplied on purpose — randomised openings, or opponents other than itself.
 
 ---
 

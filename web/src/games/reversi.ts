@@ -53,6 +53,7 @@ export class Reversi implements Game<ReversiState> {
   readonly actionSize = ACTIONS;
   readonly boardShape = [SIZE, SIZE] as const;
   readonly inputPlanes = 2;
+  readonly passAction = PASS;
 
   initialState(): ReversiState {
     const board = new Int8Array(SQUARES);
@@ -62,6 +63,11 @@ export class Reversi implements Game<ReversiState> {
     board[index(3, 3)] = -1;
     board[index(4, 4)] = -1;
     return { board, passes: 0, ply: 0 };
+  }
+
+  toPlay(state: ReversiState): number {
+    // A pass is a real action that hands the move over, so parity holds.
+    return state.ply % 2;
   }
 
   legalActions(state: ReversiState): boolean[] {

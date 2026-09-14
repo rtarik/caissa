@@ -223,19 +223,22 @@ def play_game(game, first: Player, second: Player, state,
               rng: np.random.Generator) -> float:
     """Play out ``state`` and return the result **for** ``first``.
 
-    +1 win, 0.5 draw, 0 loss. The sign work is the fiddly part: when the loop
-    ends, ``terminal_value`` describes the position for whoever is *to move*,
-    which is the player who did not just move - so it is the loser's view of a
-    decisive game.
-    """
-    players = (first, second)
-    turn = 0
-    while (outcome := game.terminal_value(state)) is None:
-        state = game.apply(state, players[turn % 2].choose(game, state, rng))
-        turn += 1
+    +1 win, 0.5 draw, 0 loss. ``first`` is whoever is to move in ``state``.
 
-    # ``outcome`` belongs to players[turn % 2], the side to move at the end.
-    result = outcome if turn % 2 == 0 else -outcome
+    Both who moves and who gets the credit go by *seat*, not by counting moves.
+    Counting works while turns alternate and fails on the first Dots & Boxes
+    bonus move, which it would hand to the wrong player - and then credit the
+    final result to the wrong one as well.
+    """
+    first_seat = game.to_play(state)
+    while (outcome := game.terminal_value(state)) is None:
+        mover = first if game.to_play(state) == first_seat else second
+        state = game.apply(state, mover.choose(game, state, rng))
+
+    # ``outcome`` belongs to whoever is to move at the end: the loser of a game
+    # that stops the moment someone wins, but quite possibly the winner of one
+    # that ends another way.
+    result = outcome if game.to_play(state) == first_seat else -outcome
     return {1.0: 1.0, 0.0: 0.5, -1.0: 0.0}[result]
 
 

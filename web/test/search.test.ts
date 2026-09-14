@@ -12,12 +12,14 @@
  */
 import { describe, expect, it } from "vitest";
 import { Connect4 } from "../src/games/connect4";
+import { DotsAndBoxes } from "../src/games/dotsandboxes";
 import { Gomoku } from "../src/games/gomoku";
 import { Isola } from "../src/games/isola";
 import { Reversi } from "../src/games/reversi";
 import type { Game } from "../src/games/types";
 import { MCTS, UniformEvaluator, argmax } from "../src/engine/mcts";
 import connect4Vectors from "./connect4-vectors.json";
+import dotsVectors from "./dotsandboxes-vectors.json";
 import gomokuVectors from "./gomoku-vectors.json";
 import isolaVectors from "./isola-vectors.json";
 import reversiVectors from "./reversi-vectors.json";
@@ -34,6 +36,8 @@ const SUBJECTS: { game: Game<unknown>; searches: SearchCase[] }[] = [
   { game: new Reversi() as Game<unknown>, searches: reversiVectors.searches },
   { game: new Gomoku() as Game<unknown>, searches: gomokuVectors.searches },
   { game: new Isola() as Game<unknown>, searches: isolaVectors.searches },
+  // Drawn from endgames: see SEARCH_PLIES in scripts/testvectors.py for why.
+  { game: new DotsAndBoxes() as Game<unknown>, searches: dotsVectors.searches },
 ];
 
 function engine(game: Game<unknown>, simulations: number) {

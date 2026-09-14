@@ -73,6 +73,10 @@ class Gomoku:
             board=np.zeros((SIZE, SIZE), dtype=np.int8), last_move=None, ply=0
         )
 
+    def to_play(self, state: GomokuState) -> int:
+        # Turns strictly alternate, so the ply's parity is the seat.
+        return state.ply % 2
+
     def legal_actions(self, state: GomokuState) -> np.ndarray:
         """Empty points near the existing stones - see :data:`NEIGHBOURHOOD`.
 

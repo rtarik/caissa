@@ -7,15 +7,21 @@ chess without changing a line of the algorithm.
 Two conventions run through everything here:
 
 *Canonical perspective* - a state is always described from the point of view of
-the player about to move. Their pieces are +1, the opponent's are -1. Applying a
-move flips the board's sign, so the next player sees the world the same way. The
-network therefore learns one function rather than one per side, and every
-training sample teaches both sides at once.
+the player about to move. Their pieces are +1, the opponent's are -1. Whenever
+the turn passes the board's sign flips, so the next player sees the world the
+same way. The network therefore learns one function rather than one per side,
+and every training sample teaches both sides at once.
 
 *Mover-relative values* - every value in this codebase answers "how good is this
 for the player to move?". +1 is a win for them, -1 a loss, 0 a draw. Mixing this
 up with an absolute "good for player one" convention is the classic way to build
 an agent that trains hard toward losing.
+
+*Seats* - which player is to move is stated explicitly by :meth:`Game.to_play`,
+never inferred from how many moves have been made. The two used to be the same
+thing. Dots & Boxes, where closing a box earns another move, is the game that
+separated them: a value crossing from one position to the next is negated only
+when the seat changes, not merely because a move was made.
 """
 
 from __future__ import annotations
@@ -43,6 +49,21 @@ class Game(Protocol[State]):
 
     def initial_state(self) -> State:
         """The position the game starts from."""
+
+    def to_play(self, state: State) -> int:
+        """Which seat is to move: 0 for the player who moved first, 1 for the other.
+
+        Canonical perspective hides this on purpose - a position looks the same to
+        whoever holds it - so the rest of the system needs it stated in exactly
+        one place: wherever a value crosses from one position to the next. A
+        result that is good for this position's mover is bad for the next
+        position's mover only if that is a *different* player.
+
+        In every game before Dots & Boxes the seat alternates and the ply's parity
+        is enough. In Dots & Boxes closing a box earns another move, so the same
+        seat can be to move several times running - and anything that assumed the
+        turn passed on every move would score each bonus move as the opponent's.
+        """
 
     def legal_actions(self, state: State) -> np.ndarray:
         """Boolean mask of shape ``(action_size,)``, True where the move is legal.

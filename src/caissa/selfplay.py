@@ -64,7 +64,7 @@ def play_game(game, mcts: MCTS, config: SelfPlayConfig | None = None,
     rng = rng if rng is not None else np.random.default_rng()
 
     state = game.initial_state()
-    positions: list[tuple[np.ndarray, np.ndarray]] = []
+    positions: list[tuple[np.ndarray, np.ndarray, int]] = []
 
     ply = 0
     while (outcome := game.terminal_value(state)) is None:
@@ -72,7 +72,7 @@ def play_game(game, mcts: MCTS, config: SelfPlayConfig | None = None,
         # Noise is on: this is data generation, and the point is variety. During
         # evaluation or real play it would be turned off.
         policy, _ = mcts.run(state, temperature=temperature, add_noise=True)
-        positions.append((game.encode(state), policy))
+        positions.append((game.encode(state), policy, game.to_play(state)))
 
         # Sample from the search policy rather than taking its argmax. At
         # temperature 0 the policy is already one-hot so this is the greedy move
@@ -81,18 +81,20 @@ def play_game(game, mcts: MCTS, config: SelfPlayConfig | None = None,
         state = game.apply(state, action)
         ply += 1
 
-    # ``outcome`` is from the perspective of the player to move in the *final*
-    # position. Walking backwards and flipping the sign at each step gives every
-    # earlier position the result as seen by whoever was to move there. This is
-    # the same alternation as the search backup, and gets broken the same way:
-    # silently, with training proceeding happily in the wrong direction.
-    samples: list[Sample] = []
-    value = outcome
-    for encoded, policy in reversed(positions):
-        value = -value
-        samples.append(Sample(encoded=encoded, policy=policy, value=value))
-    samples.reverse()
-    return samples
+    # ``outcome`` is from the perspective of whoever is to move in the *final*
+    # position. Each position is labelled from the perspective of whoever was to
+    # move *there*: the same result if that was the same seat, its negation if
+    # not. Walking backwards and flipping once per move - which is what this did
+    # until Dots & Boxes - agrees whenever turns alternate, and is wrong after
+    # every bonus move, labelling a player's own box capture as a gift to their
+    # opponent. Nothing would fail; training would proceed happily in the wrong
+    # direction.
+    final_seat = game.to_play(state)
+    return [
+        Sample(encoded=encoded, policy=policy,
+               value=outcome if seat == final_seat else -outcome)
+        for encoded, policy, seat in positions
+    ]
 
 
 def augment(game, samples: list[Sample]) -> list[Sample]:

@@ -6,6 +6,11 @@
       "parameters": 352536
     },
     {
+      "game": "dotsandboxes",
+      "generation": 40,
+      "parameters": 658125
+    },
+    {
       "game": "gomoku",
       "generation": 40,
       "parameters": 593090

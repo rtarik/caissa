@@ -82,15 +82,34 @@ const state = () => {
   return current;
 };
 
-const humanToMove = () => (moves.length % 2 === 0) === humanFirst;
+/** The seat the human plays: 0 moves first. */
+const humanSeat = () => (humanFirst ? 0 : 1);
+// Asked of the game rather than counted from the move list: after a Dots & Boxes
+// bonus move the same player is to move again, and parity would say otherwise.
+const humanToMove = () => game.toPlay(state()) === humanSeat();
 const finished = () => game.terminalValue(state()) !== null;
 
-/** True when the mover's only legal action is to pass. */
+/**
+ * True when the mover's only legal action is the game's pass.
+ *
+ * Asked of the game rather than guessed from where the action sits. The first
+ * version assumed the pass was the last action index, which is true for Reversi
+ * and false everywhere else: in Four in a Row, with only the seventh column
+ * open, it dropped the disc for you and announced that you had passed.
+ */
 function mustPass(): boolean {
+  const pass = game.passAction;
+  if (pass === undefined) return false;
   const legal = game.legalActions(state());
-  const actions = legal.flatMap((ok, i) => (ok ? [i] : []));
-  return actions.length === 1 && actions[0] === game.actionSize - 1
-    && !legal.slice(0, game.actionSize - 1).some(Boolean);
+  return legal[pass] && legal.filter(Boolean).length === 1;
+}
+
+/** Whether the last move kept the turn - a closed box, in Dots & Boxes. */
+function lastMoveKeptTurn(): boolean {
+  if (moves.length === 0) return false;
+  let before = game.initialState();
+  for (const move of moves.slice(0, -1)) before = game.apply(before, move);
+  return game.toPlay(before) === game.toPlay(state());
 }
 
 function play(action: number): void {
@@ -117,7 +136,7 @@ function advance(): void {
     if (mustPass()) {
       render();
       setTimeout(() => {
-        moves = [...moves, game.actionSize - 1];
+        moves = [...moves, game.passAction!];
         render();
         advance();
       }, 750);
@@ -275,10 +294,17 @@ function statusText(): string {
       ? `<span class="dot you"></span> You win.`
       : `<span class="dot engine"></span> The engine wins.`;
   }
-  if (thinking) return `<span class="muted">Thinking…</span>`;
+  if (thinking) {
+    return lastMoveKeptTurn()
+      ? `<span class="muted">The engine closed a box and moves again…</span>`
+      : `<span class="muted">Thinking…</span>`;
+  }
   if (humanToMove() && mustPass()) return `<span class="muted">No legal move — passing.</span>`;
   if (humanToMove() && pending !== null) {
     return `<span class="dot you"></span> Now choose a square to destroy.`;
+  }
+  if (humanToMove() && lastMoveKeptTurn()) {
+    return `<span class="dot you"></span> Box closed — your move again.`;
   }
   return humanToMove()
     ? `<span class="dot you"></span> Your move.`

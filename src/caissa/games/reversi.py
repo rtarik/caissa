@@ -6,10 +6,11 @@ Three things here that Connect 4 never exercised.
 end - they pass, and play continues. That breaks the assumption every simple
 board game encourages, that an empty move list means the game is over. It is
 handled as an explicit 65th action, legal only when nothing else is, rather than
-by silently skipping a turn. The implicit version would make ``apply`` sometimes
-leave the same player to move, and the canonical sign flip - which every other
-part of this codebase relies on happening exactly once per ``apply`` - would stop
-being uniform.
+by silently skipping a turn. Skipping would leave the same player to move twice,
+and when this was written everything downstream assumed the turn passed on every
+``apply``. Dots & Boxes later made the framework cope with that (see
+``Game.to_play``), but an explicit pass remains the more faithful model: the forced
+pass becomes a position the network sees like any other.
 
 **The full dihedral symmetry.** A square board is unchanged by four rotations and
 their mirrors, so one position yields eight training examples rather than Connect
@@ -90,6 +91,11 @@ class Reversi:
         board[3, 4] = board[4, 3] = 1
         board[3, 3] = board[4, 4] = -1
         return ReversiState(board=board, passes=0, ply=0)
+
+    def to_play(self, state: ReversiState) -> int:
+        # A pass is a real action that hands the move over, so parity holds
+        # straight through forced passes.
+        return state.ply % 2
 
     def legal_actions(self, state: ReversiState) -> np.ndarray:
         legal = np.zeros(ACTIONS, dtype=bool)

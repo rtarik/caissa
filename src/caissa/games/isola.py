@@ -13,9 +13,10 @@ chess needs. The two halves are *multiplied*, not concatenated::
 Eight directions times forty-nine squares is 392 actions, and the policy head
 emits all of them. Chess does the same thing with 64 squares times 73 move types
 for its 4672. The alternative - two separate half-moves, one for the step and one
-for the demolition - would break the invariant every other part of this codebase
-relies on: that ``apply`` always hands the position to the *other* player, so the
-canonical sign flip happens exactly once per move.
+for the demolition - would have broken the invariant every other part of this
+codebase relied on at the time: that ``apply`` always hands the position to the
+*other* player. Dots & Boxes later retired that invariant (see ``Game.to_play``),
+but the product stays: it keeps each turn a single decision for the search.
 
 The multiplication has a consequence that shows up in :meth:`Isola.symmetries`
 and nowhere else so far: under a board rotation a compound action transforms in
@@ -81,6 +82,11 @@ class Isola:
         return IsolaState(
             usable=usable, mover=SIZE // 2, opponent=SQUARES - 1 - SIZE // 2, ply=0
         )
+
+    def to_play(self, state: IsolaState) -> int:
+        # One compound action is one whole turn - which is exactly why the
+        # step and the demolition were fused - so parity holds.
+        return state.ply % 2
 
     def legal_actions(self, state: IsolaState) -> np.ndarray:
         legal = np.zeros(ACTIONS, dtype=bool)

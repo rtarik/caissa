@@ -369,3 +369,54 @@ footer {
 }
 .board.tiles:not(.locked) .cell.doomed:hover::before { content: none; }
 .board.tiles:not(.locked) .cell.playable:hover::before { content: none; }
+
+/* Dots & Boxes: an 11x11 lattice of dots, lines and boxes. Dots and lines take
+   narrow tracks and boxes wide ones, so the grid itself draws the board. */
+.board.lattice {
+  --track: clamp(10px, 2.6vw, 14px);
+  --drawn: rgb(233 235 241);
+  grid-template-columns: repeat(5, var(--track) 1fr) var(--track);
+  grid-template-rows: repeat(5, var(--track) 1fr) var(--track);
+  aspect-ratio: 1;
+  gap: 0;
+  padding: clamp(14px, 3vw, 24px);
+}
+.lattice .point {
+  position: relative;
+  z-index: 2;
+  border-radius: 50%;
+  background: rgb(233 235 241 / 0.9);
+}
+.lattice .box {
+  margin: 5px;
+  border-radius: 5px;
+  transition: background 240ms ease;
+}
+.lattice .box.you { background: color-mix(in srgb, var(--you) 82%, transparent); }
+.lattice .box.engine { background: color-mix(in srgb, var(--engine) 82%, transparent); }
+
+/* The button is wider than the line it draws: a 4px bar is not a fair target for
+   a finger, so the hit area spills into the neighbouring boxes. */
+.lattice .line {
+  position: relative;
+  z-index: 1;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.lattice .line.h { margin: -8px 0; }
+.lattice .line.v { margin: 0 -8px; }
+.lattice .line::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.1);
+  transition: background 140ms ease;
+}
+.lattice .line.h::after { left: 0; right: 0; top: 50%; height: 4px; transform: translateY(-50%); }
+.lattice .line.v::after { top: 0; bottom: 0; left: 50%; width: 4px; transform: translateX(-50%); }
+.lattice .line.drawn::after { background: var(--drawn); }
+.lattice .line.drawn.last::after { background: var(--accent); }
+.board.lattice:not(.locked) .line.playable:hover::after { background: var(--you); }
+.lattice .line:disabled { cursor: default; }

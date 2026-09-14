@@ -54,8 +54,8 @@ export const LADDER: LadderEntry[] = [
   {
     key: "dotsandboxes",
     title: "Dots & Boxes",
-    blurb: "Draw lines, claim the squares you close.",
-    teaches: "An accumulated score rather than a win or a loss.",
+    blurb: "Draw lines; close a box to claim it — and move again.",
+    teaches: "Turns that don't always pass, so the framework must be told whose move it is.",
   },
   {
     key: "chess",

@@ -7,11 +7,12 @@
  * be compared exactly rather than approximately.
  *
  * The two sign flips are the part to leave alone. A simulation's result is
- * pushed up the tree negated at every ply, and a child's mean value is negated
- * when its parent chooses between children - because a child's statistics are
- * recorded from the point of view of *its* mover, who is the opponent of whoever
- * is choosing. Removing either produces an agent that plays confidently toward
- * losing, with nothing about it looking wrong.
+ * pushed up the tree negated wherever the turn passed, and a child's mean value
+ * is negated when its parent chooses between children - but only when the
+ * child's mover is the chooser's opponent. After a Dots & Boxes line that closes
+ * a box the child's mover *is* the chooser, and neither flip applies. Getting any
+ * of this wrong produces an agent that plays confidently toward losing, with
+ * nothing about it looking wrong.
  */
 import type { Game } from "../games/types";
 
@@ -48,6 +49,8 @@ class Node<S> {
   constructor(
     public prior: number,
     public state: S,
+    /** Whether this node's mover differs from the parent's - see `mcts.py`. */
+    public flip = true,
   ) {}
 
   get expanded(): boolean {
@@ -109,8 +112,10 @@ export class MCTS<S> {
     let bestScore = -Infinity;
 
     for (const child of node.children.values()) {
-      // Negated: the child's statistics belong to the opponent.
-      const exploit = child.visitCount > 0 ? -child.value() : 0;
+      // Negated only when the child's mover is the opponent: after a bonus move
+      // the child's statistics are still the chooser's own.
+      const exploit =
+        child.visitCount === 0 ? 0 : child.flip ? -child.value() : child.value();
       const explore =
         (this.config.cPuct * child.prior * sqrtParentVisits) / (1 + child.visitCount);
       const score = exploit + explore;
@@ -130,19 +135,25 @@ export class MCTS<S> {
 
     const { priors, value } = await this.evaluator.evaluate(this.game, node.state);
     const legal = this.game.legalActions(node.state);
+    const seat = this.game.toPlay(node.state);
     for (let action = 0; action < legal.length; action++) {
       if (!legal[action]) continue;
-      node.children.set(action, new Node(priors[action], this.game.apply(node.state, action)));
+      const child = this.game.apply(node.state, action);
+      node.children.set(
+        action,
+        new Node(priors[action], child, this.game.toPlay(child) !== seat),
+      );
     }
     return value;
   }
 
   private backup(path: Node<S>[], value: number): void {
-    // The leaf's value belongs to the leaf's mover; every ply up is the opponent.
+    // The leaf's value belongs to the leaf's mover. Each step up, it changes sign
+    // only if the turn passed on the way down - never across a bonus move.
     for (let i = path.length - 1; i >= 0; i--) {
       path[i].visitCount += 1;
       path[i].valueSum += value;
-      value = -value;
+      if (path[i].flip) value = -value;
     }
   }
 

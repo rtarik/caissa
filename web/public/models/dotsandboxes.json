@@ -1,0 +1,12 @@
+{
+  "game": "dotsandboxes",
+  "inputPlanes": 5,
+  "boardShape": [
+    11,
+    11
+  ],
+  "actionSize": 60,
+  "parameters": 658125,
+  "generation": 40,
+  "simulations": 200
+}

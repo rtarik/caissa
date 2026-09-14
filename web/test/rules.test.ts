@@ -7,11 +7,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { Connect4 } from "../src/games/connect4";
+import { DotsAndBoxes, horizontal, vertical } from "../src/games/dotsandboxes";
 import { Gomoku } from "../src/games/gomoku";
 import { Isola } from "../src/games/isola";
 import { Reversi, PASS, SQUARES } from "../src/games/reversi";
 import type { Game } from "../src/games/types";
 import connect4Vectors from "./connect4-vectors.json";
+import dotsVectors from "./dotsandboxes-vectors.json";
 import gomokuVectors from "./gomoku-vectors.json";
 import isolaVectors from "./isola-vectors.json";
 import reversiVectors from "./reversi-vectors.json";
@@ -21,7 +23,13 @@ interface Vectors {
   boardShape: number[];
   inputPlanes: number;
   actionSize: number;
-  cases: { moves: number[]; legal: number[]; terminal: number | null; encoded: number[] }[];
+  cases: {
+    moves: number[];
+    legal: number[];
+    toPlay: number;
+    terminal: number | null;
+    encoded: number[];
+  }[];
 }
 
 const SUBJECTS: { game: Game<unknown>; vectors: Vectors }[] = [
@@ -29,6 +37,7 @@ const SUBJECTS: { game: Game<unknown>; vectors: Vectors }[] = [
   { game: new Reversi() as Game<unknown>, vectors: reversiVectors as Vectors },
   { game: new Gomoku() as Game<unknown>, vectors: gomokuVectors as Vectors },
   { game: new Isola() as Game<unknown>, vectors: isolaVectors as Vectors },
+  { game: new DotsAndBoxes() as Game<unknown>, vectors: dotsVectors as Vectors },
 ];
 
 for (const { game, vectors } of SUBJECTS) {
@@ -53,6 +62,16 @@ for (const { game, vectors } of SUBJECTS) {
           game.legalActions(replay(testCase.moves)).map(Number),
           `moves ${testCase.moves}`,
         ).toEqual(testCase.legal);
+      }
+    });
+
+    it("agrees on whose turn it is", () => {
+      // Stated by the game rather than counted: in Dots & Boxes the two differ
+      // after every closed box, and a UI that counted would give the bonus move
+      // to the wrong player.
+      for (const testCase of vectors.cases) {
+        expect(game.toPlay(replay(testCase.moves)), `moves ${testCase.moves}`)
+          .toBe(testCase.toPlay);
       }
     });
 
@@ -122,5 +141,41 @@ describe("reversi's own complications", () => {
 
   it("refuses a pass while a move exists", () => {
     expect(() => game.apply(game.initialState(), PASS)).toThrow();
+  });
+});
+
+describe("dots and boxes' own complications", () => {
+  const game = new DotsAndBoxes();
+
+  it("keeps the turn when a line closes a box", () => {
+    let state = game.initialState();
+    for (const line of [horizontal(0, 0), horizontal(1, 0), vertical(0, 0)]) {
+      state = game.apply(state, line);
+    }
+    expect(game.toPlay(state)).toBe(1);
+
+    const closed = game.apply(state, vertical(0, 1));
+    expect(game.toPlay(closed)).toBe(1);
+    expect(game.score(closed)).toEqual([1, 0]);
+  });
+
+  it("exercises bonus moves in the vectors", () => {
+    const cases = (dotsVectors as Vectors).cases;
+    const bonuses = cases.filter(
+      (c, i) => i > 0 && c.moves.length === cases[i - 1].moves.length + 1
+        && c.toPlay === cases[i - 1].toPlay,
+    );
+    expect(bonuses.length).toBeGreaterThan(20);
+  });
+});
+
+describe("pass actions", () => {
+  it("are declared only by the game that has one", () => {
+    // The page used to infer the pass from the last action index, which in Four
+    // in a Row is simply the seventh column.
+    expect(new Reversi().passAction).toBe(PASS);
+    for (const game of [new Connect4(), new Gomoku(), new Isola(), new DotsAndBoxes()]) {
+      expect((game as Game<unknown>).passAction).toBeUndefined();
+    }
   });
 });

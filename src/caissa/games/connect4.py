@@ -51,6 +51,10 @@ class Connect4:
             board=np.zeros((ROWS, COLS), dtype=np.int8), last_move=None, ply=0
         )
 
+    def to_play(self, state: Connect4State) -> int:
+        # Turns strictly alternate, so the ply's parity is the seat.
+        return state.ply % 2
+
     def legal_actions(self, state: Connect4State) -> np.ndarray:
         # A column accepts a piece exactly when its top cell is still empty.
         return state.board[0] == 0

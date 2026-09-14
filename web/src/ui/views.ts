@@ -1,4 +1,13 @@
 import { COLS as C4_COLS, ROWS as C4_ROWS } from "../games/connect4";
+import {
+  HORIZONTAL_LINES as D_HORIZONTAL,
+  LATTICE as D_LATTICE,
+  LINES as D_LINES,
+  SQUARES as D_SQUARES,
+  boxCell,
+  lineCell,
+  type DotsAndBoxesState,
+} from "../games/dotsandboxes";
 import { Gomoku, SIZE as G_SIZE, SQUARES as G_SQUARES } from "../games/gomoku";
 import { Isola, SIZE as I_SIZE, SQUARES as I_SQUARES } from "../games/isola";
 import { PASS, SIZE as R_SIZE, SQUARES as R_SQUARES } from "../games/reversi";
@@ -86,7 +95,7 @@ export const connect4View: View = {
   layout: "grid-7",
 
   board(ctx) {
-    const grid: Grid = absoluteGrid(ctx.game, ctx.state, ctx.moves.length);
+    const grid: Grid = absoluteGrid(ctx.game, ctx.state);
     const last = connect4LastMove(ctx.moves, C4_COLS, C4_ROWS);
     const line = new Set(winningLine(grid, C4_COLS, C4_ROWS, last) ?? []);
     const legal = ctx.game.legalActions(ctx.state);
@@ -110,7 +119,7 @@ export const reversiView: View = {
   layout: "grid-8 squares",
 
   board(ctx) {
-    const grid: Grid = absoluteGrid(ctx.game, ctx.state, ctx.moves.length);
+    const grid: Grid = absoluteGrid(ctx.game, ctx.state);
     const legal = ctx.game.legalActions(ctx.state);
     const last = ctx.moves.length && ctx.moves[ctx.moves.length - 1] !== PASS
       ? ctx.moves[ctx.moves.length - 1]
@@ -135,7 +144,7 @@ export const reversiView: View = {
   select: wholeAction,
 
   detail(ctx) {
-    const grid = absoluteGrid(ctx.game, ctx.state, ctx.moves.length);
+    const grid = absoluteGrid(ctx.game, ctx.state);
     let first = 0;
     let second = 0;
     for (const owner of grid) {
@@ -158,7 +167,7 @@ export const gomokuView: View = {
   layout: "grid-9 intersections",
 
   board(ctx) {
-    const grid: Grid = absoluteGrid(ctx.game, ctx.state, ctx.moves.length);
+    const grid: Grid = absoluteGrid(ctx.game, ctx.state);
     const legal = ctx.game.legalActions(ctx.state);
     const last = ctx.moves.length ? ctx.moves[ctx.moves.length - 1] : null;
     // Highlighting the five is worth the detour: on an open board a finished
@@ -198,7 +207,7 @@ export const isolaView: View = {
   board(ctx) {
     const game = ctx.game as unknown as Isola;
     const state = ctx.state as never as ReturnType<Isola["initialState"]>;
-    const yourTurn = (ctx.moves.length % 2 === 0) === ctx.humanFirst;
+    const yourTurn = ctx.game.toPlay(ctx.state) === (ctx.humanFirst ? 0 : 1);
 
     // Isola is the first game here with sides, so it is the first that can be
     // the wrong way up. Flip the rows when the human starts on the far edge, so
@@ -296,9 +305,90 @@ export const isolaView: View = {
   },
 };
 
+/** Lattice cell to line, and lattice cell to box, for drawing Dots & Boxes. */
+const D_CELL_LINE = new Int16Array(D_LATTICE * D_LATTICE).fill(-1);
+const D_CELL_BOX = new Int16Array(D_LATTICE * D_LATTICE).fill(-1);
+for (let line = 0; line < D_LINES; line++) {
+  const [row, col] = lineCell(line);
+  D_CELL_LINE[row * D_LATTICE + col] = line;
+}
+for (let box = 0; box < D_SQUARES; box++) {
+  const [row, col] = boxCell(box);
+  D_CELL_BOX[row * D_LATTICE + col] = box;
+}
+
+/**
+ * Who holds a box, in fixed colours, from its canonical owner.
+ *
+ * +1 means "the player to move now" - which after a bonus move is the same
+ * player who just moved - so the seat, not the move count, says whose colour it is.
+ */
+function boxHolder(state: DotsAndBoxesState, box: number, humanFirst: boolean): string {
+  const held = state.owner[box];
+  if (held === 0) return "";
+  const seat = held === 1 ? state.seat : 1 - state.seat;
+  return seat === (humanFirst ? 0 : 1) ? "you" : "engine";
+}
+
+export const dotsAndBoxesView: View = {
+  // The grid draws the board itself: dots and lines get narrow tracks and boxes
+  // wide ones, so there is no background image to keep aligned.
+  layout: "lattice",
+
+  board(ctx) {
+    const state = ctx.state as DotsAndBoxesState;
+    const last = ctx.moves.length ? ctx.moves[ctx.moves.length - 1] : null;
+
+    return Array.from({ length: D_LATTICE * D_LATTICE }, (_, cell) => {
+      const line = D_CELL_LINE[cell];
+      if (line >= 0) {
+        const orientation = line < D_HORIZONTAL ? "h" : "v";
+        const drawn = state.lines[line] === 1;
+        const classes = ["line", orientation, drawn ? "drawn" : "",
+                         line === last ? "last" : "",
+                         !drawn && !ctx.locked ? "playable" : ""];
+        return `<button class="${classes.filter(Boolean).join(" ")}" data-action="${line}"
+          ${drawn || ctx.locked ? "disabled" : ""}
+          aria-label="${orientation === "h" ? "Horizontal" : "Vertical"} line ${line + 1}"></button>`;
+      }
+      const box = D_CELL_BOX[cell];
+      if (box >= 0) return `<span class="box ${boxHolder(state, box, ctx.humanFirst)}"></span>`;
+      return `<span class="point"></span>`;
+    }).join("");
+  },
+
+  select: wholeAction,
+
+  detail(ctx) {
+    const state = ctx.state as DotsAndBoxesState;
+    let yours = 0;
+    let theirs = 0;
+    for (let box = 0; box < D_SQUARES; box++) {
+      const holder = boxHolder(state, box, ctx.humanFirst);
+      if (holder === "you") yours++;
+      else if (holder === "engine") theirs++;
+    }
+    return `<span class="spacer score">
+              <span class="dot you"></span>${yours}
+              <span class="dot engine" style="margin-left:8px"></span>${theirs}
+            </span>`;
+  },
+
+  // Line visits laid out on the same lattice, so the heatmap reads as the board.
+  visits(counts) {
+    const lattice = new Array<number>(D_LATTICE * D_LATTICE).fill(0);
+    counts.slice(0, D_LINES).forEach((visits, line) => {
+      const [row, col] = lineCell(line);
+      lattice[row * D_LATTICE + col] = visits;
+    });
+    return heatmap(lattice, D_LATTICE * D_LATTICE, D_LATTICE);
+  },
+};
+
 export const VIEWS: Record<string, View> = {
   connect4: connect4View,
   reversi: reversiView,
   gomoku: gomokuView,
   isola: isolaView,
+  dotsandboxes: dotsAndBoxesView,
 };
