@@ -54,6 +54,14 @@ double-dealing traps that greedy play falls into:
 .venv/bin/python scripts/endgames.py models/dotsandboxes-latest.pt
 ```
 
+Chess learns first from human games. This downloads a month of Lichess's public games
+(about 14 GB, checked against the published checksum) and keeps those between players rated
+2200+, as training positions in `data/chess/<month>/` — a few minutes for a month:
+
+```bash
+.venv/bin/python scripts/lichess.py 2020-01
+```
+
 `scripts/gifts.py` checks the other end of the game: how often a checkpoint takes a box handed
 to it early, a position its own self-play almost never produces.
 

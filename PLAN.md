@@ -688,20 +688,43 @@ from the server:
 Games from 2017 on carry clock times in the move text, which is part of why later months grow
 faster than their game counts.
 
-- [ ] Filter while decompressing: rated standard games, **both players 2200+**, blitz or slower
-      (a two-second bullet move is not a decision worth copying), finished normally — no time
-      forfeits, whose result the board did not decide — and at least 20 plies. Why 2200+ and
-      not the owner's level: see the decision log.
-- [ ] Hold out ~1% for validation, split **by game**: positions from one game are near-duplicates,
-      and letting them straddle the split would measure memory rather than skill
-- [ ] Store what happened, not what the network sees: the board, the move played and the result,
-      ~40 bytes a position, encoded at training time. Changing the input planes or the move
-      encoding then never means re-filtering a month (decision log).
-- [ ] One month per stage, downloaded resumably and deleted once converted. Games with both
-      players 2200+ and no bullet are roughly 0.5–1% of a month (against ~3–4% for 1800–1999),
-      so small early months yield little: 2017-01 would give perhaps 50–100 k. **First:
-      2020-01** — 13.75 GB, an estimated few hundred thousand games, to be measured. For scale,
-      Maia trained on 12 M games per 100-point band from 2017–2019.
+- [x] `scripts/lichess.py <month>` downloads resumably, checks Lichess's published checksum and
+      converts across 8 worker processes. Games are split out of the zstd stream and judged on
+      their headers alone; only survivors have their moves parsed and replayed, through `Chess`
+      itself. Filter: **both players 2200+** (decision log), blitz or slower, finished on the
+      board — no time forfeits, whose result a clock decided — no bots, at least 20 plies.
+- [x] Stored as what happened (`caissa.data.chess`): 44 bytes a position — the board as nibbles,
+      side to move, rights, repetition count, the move played and its game — and encoded at
+      training time by a vectorised twin of `Chess.encode` that the tests hold to it exactly
+- [x] 1% held out for validation **by game**, chosen from the game's ID so the same games are
+      held out on every run: positions from one game are near-duplicates, and letting them
+      straddle the split would measure memory rather than skill
+- [x] Tests: 25. Of 22 deliberate bugs, 21 were caught; the other is an equivalent mutant —
+      relabelling a lookup table's columns in both places that use them changes nothing
+- [x] **January 2020 converted** (below). The raw file is kept rather than deleted, so 9.4b's
+      owner-level band can be filtered from it without a second 13.75 GB download.
+- [x] `.gitignore`'s `data/` — meant for the downloads — also matched `src/caissa/data/` and hid
+      the new package from git; a pattern without a leading slash matches at any depth. Now
+      `/data/`.
+
+**January 2020, as converted:**
+
+| | |
+|---|---|
+| read | 46,800,709 games — Lichess's published count to the game — 98.8 GB of text in 225 s |
+| kept | **530,632 games (1.1%)**, **39.6 M positions**, 74.6 plies a game |
+| rejected | rating 22.2 M, bullet 17.5 M, not finished on the board 6.6 M, too short 5,733, bots 2,185 |
+| results | White 48.4%, drawn 8.6%, Black 43.1% |
+| players | median 2320, 90th percentile 2503, highest 2974 |
+| held out | 5,210 games, 391 k positions |
+| on disk | 1.78 GB of positions, 10 MB of games |
+| checked | no illegal move in a 2,000-position spot check; 19,904 random stored positions encode exactly as `Chess.encode` does |
+
+Two things the numbers say. **At 2200+, "blitz or slower" means blitz**: 98% of what is kept,
+because strong Lichess players hardly play the slower controls. And **the first 2% of the month
+predicted the whole**: a 2 GB sample, converted in 7 s before the download had finished,
+projected 570 k games; the month gave 531 k. Maia trained on 12 M games per 100-point band; one
+month here is about a twentieth of that, which is why months are added a stage at a time.
 
 **9.4 — Imitation, stage by stage**
 
@@ -1545,6 +1568,12 @@ not a substitute for the AlphaZero paper.
 - **A convenient API can cost more than the work** — chess.js's full move list spent 0.8 ms per
   position on notation the search never reads, more than the network evaluation itself.
   Measure what a library does per call before building a hot loop on it.
+- **Reject on the cheapest evidence first** — 99% of a month's games are ruled out by their
+  headers, and only the 1.1% that survive pay for parsing and replaying their moves. That
+  ordering, not faster parsing, is why 99 GB of games convert in under four minutes.
+- **Imitation has its own data hygiene** — hold out whole games, not positions, or validation
+  measures how well the network remembers games it has half seen; and drop results a clock
+  decided, or the value head learns that being ahead loses.
 
 ---
 
