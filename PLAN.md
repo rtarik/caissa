@@ -14,9 +14,10 @@ it is. It is written to be picked up cold, by a later session or a different age
    and every phase is expected to come with an explanation of the RL ideas involved.
 2. **A multi-game AlphaZero framework, playable in the browser.** The algorithm must stay
    game-agnostic. Games are added to prove the abstraction holds, not as an afterthought.
-3. **An engine strong enough to be a challenge.** The owner plays at roughly 1600–2000,
-   so chess is targeted at ~1800–1900 — which means the supervised bootstrap alone will
-   not be enough and self-play RL is required, not optional.
+3. **An engine strong enough to be a challenge.** The owner plays at roughly 1600–2000 FIDE
+   (over the board; Lichess ratings run a few hundred points higher at club level), so chess
+   is targeted at ~1800–1900 FIDE. Imitating strong games plus search may get close; self-play
+   RL is how it should get past the humans it copied, and is the point of the project anyway.
 
 ## Constraints
 
@@ -574,9 +575,10 @@ session.
 
 **The shape of the plan, and why.** Zero-start self-play is out of reach on one machine —
 AlphaZero's chess run was ~4.7×10¹² network evaluations (*Measured facts*). So the network
-first **imitates** human games, supervised, the way AlphaGo started; self-play then improves
-on what it copied. The first network is a human-like player, the second should be stronger
-than the humans it learned from.
+first **imitates** strong human games, supervised, the way AlphaGo started; self-play then
+improves on what it copied. The first network plays like the strong club players it learned
+from; the second should be stronger than they are. A network pitched at the owner's own level
+is a separate, optional personality (9.4b).
 
 | Stage | Produces | Ends with |
 |---|---|---|
@@ -584,7 +586,8 @@ than the humans it learned from.
 | 9.1 Rules and encoding | `Chess` behind the `Game` protocol | tests; the cost of a search step, measured |
 | 9.2 Browser | a chess page | the owner plays an *untrained* network |
 | 9.3 Data, a month at a time | filtered human games as compact shards | statistics for each month |
-| 9.4 Imitation, stage by stage | the human-like network | the owner plays it after every stage |
+| 9.4 Imitation, stage by stage | the imitation network | the owner plays it after every stage |
+| 9.4b Owner's level, optional | a human-like network pitched at the owner | the owner plays it |
 | 9.5 Yardsticks | puzzles and a Stockfish ladder | a rating on an outside scale |
 | 9.6 Self-play, stage by stage | the stronger network | the owner plays it after every stage |
 | 9.7 Ship | both personalities on the site | |
@@ -647,17 +650,20 @@ from the server:
 Games from 2017 on carry clock times in the move text, which is part of why later months grow
 faster than their game counts.
 
-- [ ] Filter while decompressing: rated standard games, **both players 1800–1999**, blitz or
-      slower (a two-second bullet move is not a decision worth copying), finished normally —
-      no time forfeits, whose result the board did not decide — and at least 20 plies
+- [ ] Filter while decompressing: rated standard games, **both players 2200+**, blitz or slower
+      (a two-second bullet move is not a decision worth copying), finished normally — no time
+      forfeits, whose result the board did not decide — and at least 20 plies. Why 2200+ and
+      not the owner's level: see the decision log.
 - [ ] Hold out ~1% for validation, split **by game**: positions from one game are near-duplicates,
       and letting them straddle the split would measure memory rather than skill
 - [ ] Store what happened, not what the network sees: the board, the move played and the result,
       ~40 bytes a position, encoded at training time. Changing the input planes or the move
       encoding then never means re-filtering a month (decision log).
-- [ ] One month per stage, downloaded resumably and deleted once converted. **First: 2017-01** —
-      1.9 GB, an estimated 0.4–0.6 M games in the band, to be measured. Maia trained on 12 M
-      games per 100-point band from 2017–2019; that is a ceiling, not a target.
+- [ ] One month per stage, downloaded resumably and deleted once converted. Games with both
+      players 2200+ and no bullet are roughly 0.5–1% of a month (against ~3–4% for 1800–1999),
+      so small early months yield little: 2017-01 would give perhaps 50–100 k. **First:
+      2020-01** — 13.75 GB, an estimated few hundred thousand games, to be measured. For scale,
+      Maia trained on 12 M games per 100-point band from 2017–2019.
 
 **9.4 — Imitation, stage by stage**
 
@@ -673,6 +679,13 @@ faster than their game counts.
       and endgame), held-out value loss, a match against the previous stage; then export, and
       the owner plays it. Stop adding months when accuracy stops rising. For reference, Maia's
       6×64 networks, with history, predict about half of human moves.
+
+**9.4b — A human-like network at the owner's level (optional)**
+
+- [ ] The same pipeline with a different filter: a Lichess band matched to the owner's FIDE
+      1600–2000 — probably somewhere around 2000–2200 on Lichess, to be checked against the
+      owner's own games before any month is filtered for it. Played from its raw policy, the
+      way Maia plays: fewer simulations make an engine weaker, not more human.
 
 **9.5 — Yardsticks: a rating on an outside scale**
 
@@ -704,8 +717,9 @@ first game with calibrated opponents to measure against.
 
 **9.7 — Ship**
 
-- [ ] Two personalities: *human-like* (the imitation network, raw policy) and *strong* (the
-      self-play network with search)
+- [ ] Personalities: the imitation network from its raw policy (a strong club player's style),
+      the self-play network with search (the strongest), and the owner-level network if 9.4b
+      was built
 - [ ] Budget: a network of a few MB, and a move in a second or two on an ordinary laptop
 
 ---
@@ -1107,6 +1121,7 @@ Decisions already argued through. Revisit deliberately, not by accident.
 | Browser ship before chess | Proves the deployment path early and keeps the project playable throughout. |
 | Chess in stages, each ending in a network the owner plays | The owner's own games are part of the evaluation, and no stage has to fit in one sitting. The price: every stage restarts training, so the chess replay buffer must survive checkpoints. |
 | Chess games stored as what happened, not as the network sees them | Board, move played and result, encoded at training time. Changing the input planes or the move encoding then never means re-downloading or re-filtering a month. |
+| Chess main line imitates strong games (both players 2200+), not the owner's level | The value head learns who went on to win, and at club level that is often decided by a blunder long after the position; stronger players' results track positions better. A stronger prior also wastes fewer simulations, and every bit of strength imitation provides is self-play compute not spent. The price is data — a month holds a fifth as many such games — and human-likeness at the owner's level, which becomes its own optional network. Filtered from the official CC0 dumps rather than the Lichess Elite Database, which states no licence. |
 
 ---
 
