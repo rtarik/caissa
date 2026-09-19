@@ -146,6 +146,24 @@ def test_backup_alternates_sign_up_the_tree(game):
     assert all(n.visit_count == 1 for n in path)
 
 
+def test_only_visited_children_get_positions(game):
+    """Positions are built on the first visit, not at expansion.
+
+    Building every child up front cost chess 31% of a search step, for children
+    of which 97 in 100 were never visited. A regression here changes no result,
+    only the speed - which is exactly why it needs a test of its own.
+    """
+    root = make_mcts(game, simulations=60).search(game.initial_state(), add_noise=False)
+    stack, built = [root], 0
+    while stack:
+        node = stack.pop()
+        for child in node.children.values():
+            assert (child.state is not None) == (child.visit_count > 0)
+            built += child.state is not None
+            stack.append(child)
+    assert built == 59  # one new position per simulation after the root's own
+
+
 # ----------------------------------------------------------------- temperature
 
 

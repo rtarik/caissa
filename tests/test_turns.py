@@ -71,13 +71,18 @@ def test_backup_keeps_the_sign_across_a_bonus_move():
     assert [n.value() for n in (root, a, b, c)] == [1.0, -1.0, -1.0, 1.0]
 
 
-def test_expansion_marks_which_children_keep_the_turn():
+def test_children_are_marked_for_whether_they_keep_the_turn():
     game = DotsAndBoxes()
     # Three sides of box (0, 0): exactly one line closes it.
     state = game.initial_state()
     for line in (0, 5, 30):
         state = game.apply(state, line)
-    root = MCTS(game, UniformEvaluator(), MCTSConfig(simulations=1)).search(state, add_noise=False)
+    mcts = MCTS(game, UniformEvaluator(), MCTSConfig(simulations=1))
+    root = mcts.search(state, add_noise=False)
+    # Expansion records the moves; a child's position is built on its first visit.
+    assert all(child.state is None for child in root.children.values())
+    for child in root.children.values():
+        mcts._build(root, child)
     keeps = [action for action, child in root.children.items() if not child.flip]
     assert keeps == [31]
 

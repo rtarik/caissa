@@ -17,8 +17,10 @@ A single simulation has four phases:
 
 1. **Select** - walk down from the root, at each node taking the move that
    maximises PUCT, until reaching a node that has not been expanded yet.
-2. **Expand** - ask the evaluator for that leaf's priors and value, and create a
-   child for every legal move.
+2. **Expand** - ask the evaluator for that leaf's priors and value, and record a
+   child for every legal move. A child's position is only built the first time a
+   simulation goes there, because most never get a visit: in chess a simulation
+   records ~31 children and visits one.
 3. **Back up** - push the value back along the path taken, flipping its sign
    wherever the turn passed between one position and the next.
 4. Repeat, so the tree deepens where it matters.
@@ -68,20 +70,25 @@ class Node:
     of the player to move at this node**, following the project convention.
     """
 
-    __slots__ = ("prior", "visit_count", "value_sum", "children", "state", "flip")
+    __slots__ = ("prior", "visit_count", "value_sum", "children", "state", "flip", "action")
 
-    def __init__(self, prior: float, state=None, flip: bool = True):
+    def __init__(self, prior: float, state=None, flip: bool = True, action: int | None = None):
         #: The evaluator's probability for the move that led here.
         self.prior = prior
         self.visit_count = 0
         self.value_sum = 0.0
         self.children: dict[int, Node] = {}
+        #: The position, or ``None`` until the search first comes this way.
         self.state = state
+        #: The move from the parent that leads here, to build ``state`` from.
+        self.action = action
         #: Whether the player to move here is a *different* player from the one
         #: to move in the parent. True for every move of a game whose turns
         #: alternate; False after a Dots & Boxes line that closed a box and earned
         #: a bonus move. Every sign flip in the search is conditional on this,
-        #: because a value only changes sign when it changes hands.
+        #: because a value only changes sign when it changes hands. Known once
+        #: ``state`` is built - and never read before, since an unvisited child
+        #: has no value to flip.
         self.flip = flip
 
     @property
@@ -132,9 +139,24 @@ class MCTS:
         path = [root]
         node = root
         while node.expanded:
-            node = self._best_child(node)
+            child = self._best_child(node)
+            if child.state is None:
+                self._build(node, child)
+            node = child
             path.append(node)
         return path
+
+    def _build(self, parent: Node, child: Node) -> None:
+        """Create a child's position on its first visit, and note whether the turn passed.
+
+        Expansion only records a prior per move. Building every child up front
+        costs a call to the rules per legal move, and in chess that was 31% of a
+        whole search step - spent on positions that, 97 times in 100, were
+        never visited. Building on demand does the same search, in the same
+        order, with the same result; it just skips the work nobody looks at.
+        """
+        child.state = self.game.apply(parent.state, child.action)
+        child.flip = self.game.to_play(child.state) != self.game.to_play(parent.state)
 
     def _best_child(self, node: Node) -> Node:
         """Pick the child maximising the PUCT score.
@@ -207,15 +229,10 @@ class MCTS:
             return terminal
 
         priors, value = self.evaluator.evaluate(self.game, node.state)
-        seat = self.game.to_play(node.state)
         for action in np.flatnonzero(self.game.legal_actions(node.state)):
             action = int(action)
-            child = self.game.apply(node.state, action)
-            node.children[action] = Node(
-                prior=float(priors[action]),
-                state=child,
-                flip=self.game.to_play(child) != seat,
-            )
+            # A prior and a move; the position waits for a visit (see _build).
+            node.children[action] = Node(prior=float(priors[action]), action=action)
         return value
 
     def _backup(self, path: list[Node], value: float) -> None:

@@ -13,7 +13,8 @@ playable in the browser against networks learned entirely from self-play, with s
 in a Web Worker and nothing leaving the device. Reversi, Gomoku and Isolation each needed only
 a few lines of change to existing framework code. Dots & Boxes deliberately changed the
 framework itself: it is the first game where a player can move twice in a row, so whose turn
-it is now has to be stated by the game rather than counted. Chess is next.
+it is now has to be stated by the game rather than counted. Chess is under way, in stages
+(Phase 9).
 See [PLAN.md](PLAN.md) for the full roadmap, decision log and progress checklist.
 
 ## Development

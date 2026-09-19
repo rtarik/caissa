@@ -146,7 +146,7 @@ an arbitrary list.
 | Gomoku | Large action space; policy targets become very sparse. | 81 | done |
 | Isolation | **Compound actions** (move *and* remove a tile) — action encoding design. | 392 | done |
 | Dots & Boxes | **Bonus moves** — closing a box earns another turn, so turns stop alternating. The result is a count. | 60 | done |
-| Chess | Everything at once, plus a supervised bootstrap. | 4672 | *planning* |
+| Chess | Everything at once, plus a supervised bootstrap. | 4672 | *in progress* |
 
 Isola is deliberate rehearsal for chess: a compound action space is exactly the problem
 AlphaZero's 73-plane encoding solves. Dots & Boxes is the most conceptually interesting,
@@ -566,7 +566,7 @@ openings leave a box on offer; with 1–20, 38%.
       learned to decline
 - [ ] A direct gen30 vs gen15 match, to settle whether the buffer reset slowed iterations 16–30
 
-### Phase 9 — Chess — *planning*
+### Phase 9 — Chess — *in progress*
 
 Chess is built and trained in stages. Every stage ends with something checked and, from 9.2
 on, a network the owner can play in the browser before deciding on the next stage. Downloads
@@ -594,32 +594,51 @@ is a separate, optional personality (9.4b).
 
 9.1–9.3 are the setup; 9.4 and 9.6 are the training.
 
-**9.1 — Rules and encoding (Python)**
+**9.1 — Rules and encoding (Python)** — done
 
-- [ ] `src/caissa/games/chess.py` on python-chess. Check, mate, stalemate, castling, en passant,
-      promotion, insufficient material, the fifty-move rule and repetition are all delegated,
-      not rewritten (decision log). python-chess is GPL-3.0: fine here; the site uses chess.js,
-      so nothing GPL reaches the browser.
-- [ ] **Canonical perspective**: for Black the board is mirrored (ranks reversed, colours
-      swapped), so the network always sees the mover playing up the board — the same trick as
-      every earlier game, and why one network plays both sides.
-- [ ] **Input**: the current position only — 12 piece planes (the mover's first), castling
-      rights, en passant, the fifty-move counter and a repetition count, about 19 planes.
-      AlphaZero and Maia add eight plies of history; that is the first thing to try if move
-      prediction stalls.
-- [ ] **Actions**: AlphaZero's 73 move types × 64 origin squares = 4,672, in the mover's frame —
-      56 queen-like (8 directions × 7 distances), 8 knight moves, 9 underpromotions (promoting
-      to a queen is a queen-like move). Read off by the convolutional policy head Isolation
-      introduced for exactly this.
-- [ ] **No symmetry augmentation**: castling rights break the left-right mirror and pawns the
-      up-down one. The first game whose `symmetries()` is the identity alone.
-- [ ] Tests: in thousands of random positions every legal move maps to a unique index and back;
-      a position and its colour-mirrored twin encode identically; mate, stalemate, repetition,
-      the fifty-move rule, every promotion, castling out of and through check, en passant.
-- [ ] Measure a search step. python-chess is pure Python, and building ~35 child positions per
-      expansion may cost as much as the network evaluation (a whole Dots & Boxes expansion was
-      0.04 ms). If it does, create children lazily on their first visit — a change to the
-      game-agnostic search, which only ever needs an unvisited child's prior.
+- [x] `src/caissa/games/chess.py` on python-chess 1.11. Check, mate, stalemate, castling, en
+      passant, promotion, insufficient material, the fifty-move rule and repetition are all
+      delegated, not rewritten (decision log). python-chess is GPL-3.0: fine here; the site
+      uses chess.js, so nothing GPL reaches the browser. A state is a board without its move
+      stack, plus the position keys since the last irreversible move — all that repetition
+      needs, and never more than a hundred long.
+- [x] **Canonical perspective**: for Black the board is mirrored (ranks reversed, colours
+      swapped), so the network always sees the mover playing up the board, and Black's
+      castling is the same action as White's. Tested on thousands of positions and their
+      colour-mirrored twins: identical planes, identical legal actions.
+- [x] **Input**: 19 planes — 12 for the pieces (the mover's first), 4 castling rights, en
+      passant (marked only when the capture is actually possible), the fifty-move counter and
+      a repeated-position flag. No history planes yet; they are the first thing to try if
+      move prediction stalls.
+- [x] **Actions**: 73 move types × 64 origin squares = 4,672, type-major as the conv head emits
+      them. **1,858 stay on the board** — 1,456 queen-like, 336 knight, 66 underpromotions —
+      the count Leela Chess Zero's policy map also arrives at, which checks the table's
+      geometry against an outside number.
+- [x] **No symmetry augmentation**: `symmetries()` is the identity alone
+- [x] Draws applied automatically, as engines do: threefold repetition, the fifty-move rule at
+      the hundredth half-move (a mate delivered on it still wins), stalemate, insufficient
+      material
+- [x] Tests: 26 for chess, plus chess joining the turn-alternation test. 18 deliberate bugs in
+      the translation and in the search change below, all caught.
+- [x] **Measured a search step, then built children lazily** (`scripts/searchcost.py`; table
+      below). The search now builds a child's position on its first visit.
+- [x] `scripts/testvectors.py` records each game's case count, so regenerating with its defaults
+      reproduces the committed vectors — the no-change check below first "failed" on exactly
+      that
+
+**A search step, measured** — one CPU thread, 6×64 network, as a self-play worker runs:
+
+| per simulation | chess, children built up front | chess, built on first visit | Dots & Boxes, on first visit |
+|---|---|---|---|
+| network | 623 µs | 644 µs | 824 µs |
+| rules and tree | 311 µs (31%) | **73 µs (10%)** | 28 µs (3%) |
+| simulations a second, per worker | 996 | **1,337** | 1,190 |
+
+Each simulation *recorded* 31.4 chess children and *visited* 0.95, so building every child at
+expansion was work thrown away 97 times in 100. Building on first visit is the same search in
+the same order: the Python↔TypeScript search vectors of all five earlier games regenerate bit
+for bit. The network is now nine tenths of a chess search step, so the next factor comes from
+batching evaluations across games (Phase 2c), not from faster rules.
 
 **9.2 — Browser**
 
@@ -708,9 +727,10 @@ first game with calibrated opponents to measure against.
 - [ ] Resignation, as AlphaZero did: resign below a value threshold, but play ~10% of games out
       regardless to measure how often resigning would have been wrong. A maximum game length,
       and temperature over the first 30 plies.
-- [ ] Throughput before anything else. Python search over python-chess may manage only hundreds
-      of games an hour; batched leaf evaluation (Phase 2c) and lazy children are the cheap
-      fixes, a Rust search on `shakmaty` the expensive one
+- [ ] Throughput before anything else. Measured in 9.1: about 1,340 simulations a second per
+      worker, the network nine tenths of it — roughly 2,000 games an hour at 200 simulations a
+      move across eight workers, if games average 100 plies. The lever is batching evaluations
+      across games (Phase 2c); a Rust search on `shakmaty` would only speed up the tenth left
 - [ ] Don't forget the humans: keep a share of human positions in the buffer, and play every
       stage against the imitation network as well as its predecessor
 - [ ] After each stage: arena results, the yardsticks, then the owner plays it
@@ -1484,6 +1504,20 @@ not a substitute for the AlphaZero paper.
   reason to take a free one, and it doesn't. Better data could not change that; only a
   different objective could. KataGo adds a score term to its search for exactly this reason:
   when the chances of winning are equal, prefer the bigger win.
+
+### Phase 9
+
+- **Delegate the rules, own the translation** — python-chess decides what is legal. What can
+  still go wrong is ours: mirroring the board for Black, and a 4,672-entry table naming every
+  move. That is where the tests and the eighteen deliberate bugs went, and an outside number —
+  Leela's 1,858 on-board moves — checked the table's geometry independently.
+- **Most of a search tree is never visited** — expansion records every legal move of a leaf, and
+  the next simulation visits one of them. Building positions only on first visit cut the rules
+  from 31% of a chess search step to 10%, with the tree and every result unchanged.
+- **Prove that a speed-up changed nothing** — a change meant to leave every result as it was
+  should be shown to: five games' search vectors regenerated bit for bit. The first attempt
+  "failed" because the committed files had been made with case counts nobody had written down
+  — an unrecorded setting is a result nobody can reproduce.
 
 ---
 

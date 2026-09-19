@@ -40,11 +40,18 @@ SEARCH_PLIES = {"dotsandboxes": (54, 58)}
 #: sign rule once it reaches finished games, and eight simulations rarely do.
 SEARCH_SIMULATIONS = {"dotsandboxes": [60, 150, 400]}
 
+#: Rules cases per game, as the committed vector files were generated. Recorded
+#: so that regenerating with the defaults reproduces those files exactly - which
+#: is how a change meant to alter no result (lazy children in the search, say)
+#: proves that it didn't.
+CASES = {"connect4": 250, "reversi": 150, "gomoku": 150, "isola": 150}
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--game", default="connect4", choices=sorted(GAMES))
-    parser.add_argument("--cases", type=int, default=200)
+    parser.add_argument("--cases", type=int, default=None,
+                        help="defaults to the count the committed file was made with")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=None,
                         help="defaults to web/test/<game>-vectors.json")
@@ -56,7 +63,8 @@ def main() -> None:
     cases = []
     terminal_cases = 0
 
-    while len(cases) < args.cases:
+    wanted = args.cases or CASES.get(game.name, 200)
+    while len(cases) < wanted:
         state = game.initial_state()
         moves: list[int] = []
         # Record every position along a game, not just the last: the interesting
@@ -79,7 +87,7 @@ def main() -> None:
             state = game.apply(state, action)
             moves.append(action)
 
-    cases = cases[: args.cases]
+    cases = cases[:wanted]
 
     # Search vectors. With a uniform evaluator and no root noise the search is
     # fully deterministic, so the TypeScript port can be compared to Python's
