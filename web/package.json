@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "chess.js": "1.4.0",
     "onnxruntime-web": "^1.29.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",

@@ -640,17 +640,31 @@ the same order: the Python↔TypeScript search vectors of all five earlier games
 for bit. The network is now nine tenths of a chess search step, so the next factor comes from
 batching evaluations across games (Phase 2c), not from faster rules.
 
-**9.2 — Browser**
+**9.2 — Browser** — done
 
-- [ ] chess.js (BSD licence) for the rules in TypeScript; the encoding and move index ported and
-      checked against Python-generated vectors, search included, as for every other game
-- [ ] Board: click or drag to move, legal targets shown, a promotion choice, check and last-move
-      highlights, the move list, flip board
-- [ ] Two ways for the engine to play: **raw policy** — one move straight from the network, which
-      is how Maia plays human-like chess — and **search** at the usual strength levels
-- [ ] A picker for which exported stage to play, so stages can be compared by feel
-- [ ] Playable with an untrained network first, so "train a stage, export, play it" works before
-      any training does
+- [x] chess.js 1.4.0 (BSD licence) for the rules in TypeScript, with the encoding and the move
+      table ported and checked against Python on 300 positions and 40 searches, as for every
+      other game. Chess vectors list legal moves by index — a 4,672-wide mask per position
+      would have made the file ~6 MB — and half their searches start where a move mates at
+      once, so 16 of 40 reach a decided game. The first set reached none.
+- [x] **chess.js's private generator, contained.** Its public `moves({verbose: true})` builds
+      every move's notation and the position before and after it: 819 µs a call, more than a
+      network evaluation, and it made the web tests take 68 s. The private `_moves` underneath
+      returns plain moves. It is reached in one adapter, chess.js is pinned to exactly 1.4.0,
+      and a test checks it lists the same moves as the public API. The tests now take 3 s.
+- [x] The TypeScript search builds children on first visit as well; every game's search vectors
+      still match Python exactly
+- [x] The board: our own SVG pieces (`web/src/ui/pieces.ts`) on slate squares. Click a piece,
+      then its square; legal targets, the last move, check and the selection are highlighted;
+      coordinates; a promotion picker; turned to face Black when the owner plays Black; the
+      moves in standard notation. White and Black name the seats.
+- [x] **Instinct** — the network alone, no search — joins the strength levels for every game:
+      how Maia plays human-like chess, and the plainest view of what a network has learned
+- [x] Playable now, against an untrained network labelled as such: 200 simulations take about
+      0.3 s in the browser
+- [x] Third-party notices for chess.js and ONNX Runtime Web, linked from the footer. Both licences
+      require the notice to travel with the code, and minifying strips it from the bundle.
+- [ ] A picker for which exported stage to play: moved to 9.4, when there is a second network
 
 **9.3 — Data, a month at a time**
 
@@ -690,6 +704,7 @@ faster than their game counts.
       configuration benchmarked in *Measured facts* (0.63 M parameters, ~35 k positions/s of
       training), so a 35 M-position month trains in about twenty minutes a pass
 - [ ] Policy target: the move the human played. Value target: the game's result for the mover.
+- [ ] A picker on the page for which exported stage to play, so stages can be compared by feel
 - [ ] **Value overfitting**: every position in a game shares one result, so the value head can
       learn to recognise *games* instead of judging *positions*. AlphaGo's value network trained
       on one position per game for this reason. Down-weight or subsample the value loss, and
@@ -1518,6 +1533,13 @@ not a substitute for the AlphaZero paper.
   should be shown to: five games' search vectors regenerated bit for bit. The first attempt
   "failed" because the committed files had been made with case counts nobody had written down
   — an unrecorded setting is a result nobody can reproduce.
+- **A test that cannot fail, again** — the first chess search vectors reached a decided game in
+  none of 40 searches, so every root value was zero, which agrees with a port whatever it does
+  with signs: the Phase 8 lesson in a new game. Starting half the searches where a move mates
+  at once made 16 of them decisive.
+- **A convenient API can cost more than the work** — chess.js's full move list spent 0.8 ms per
+  position on notation the search never reads, more than the network evaluation itself.
+  Measure what a library does per call before building a hot loop on it.
 
 ---
 

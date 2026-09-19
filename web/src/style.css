@@ -420,3 +420,156 @@ footer {
 .lattice .line.drawn.last::after { background: var(--accent); }
 .board.lattice:not(.locked) .line.playable:hover::after { background: var(--you); }
 .lattice .line:disabled { cursor: default; }
+
+/* ------------------------------------------------------------------- chess */
+
+/* Slate squares in the site's own blues, and pieces drawn for this site
+   (src/ui/pieces.ts). */
+.board.chess {
+  --light: #e3e7ef;
+  --dark: #9ba8c1;
+  --piece-white: #faf8f2;
+  --piece-black: #283042;
+  --piece-edge: #161a23;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0;
+  padding: 10px;
+  position: relative;
+}
+@media (prefers-color-scheme: dark) {
+  .board.chess { --light: #c6cddc; --dark: #7f8ca8; }
+}
+.board.chess .sq {
+  position: relative;
+  aspect-ratio: 1;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: var(--light);
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.board.chess .sq:disabled { opacity: 1; }
+.board.chess .sq.dark { background: var(--dark); }
+.board.chess .sq:nth-child(1) { border-top-left-radius: 8px; }
+.board.chess .sq:nth-child(8) { border-top-right-radius: 8px; }
+.board.chess .sq:nth-child(57) { border-bottom-left-radius: 8px; }
+.board.chess .sq:nth-child(64) { border-bottom-right-radius: 8px; }
+.board.chess .sq.movable { cursor: pointer; }
+
+.board.chess .sq.last::before,
+.board.chess .sq.selected::before,
+.board.chess .sq.movable:hover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.board.chess .sq.last::before { background: rgb(79 124 255 / 0.26); }
+.board.chess .sq.movable:hover::before { background: rgb(255 255 255 / 0.16); }
+.board.chess .sq.selected::before { background: rgb(79 124 255 / 0.48); }
+.board.chess .sq.check {
+  background-image: radial-gradient(circle, rgb(226 72 64 / 0.9) 0%,
+    rgb(226 72 64 / 0.45) 42%, transparent 72%);
+}
+.board.chess .sq.target::after,
+.board.chess .sq.capture::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.board.chess .sq.target::after { width: 28%; height: 28%; background: rgb(22 26 35 / 0.3); }
+.board.chess .sq.capture::after { inset: 5%; border: 5px solid rgb(22 26 35 / 0.3); }
+
+.piece {
+  position: relative;
+  z-index: 1;
+  width: 86%;
+  height: 86%;
+  fill: var(--fill);
+  stroke: var(--piece-edge);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.28));
+}
+.piece.white { --fill: var(--piece-white); }
+.piece.black { --fill: var(--piece-black); }
+.piece .detail { fill: none; }
+.piece.black .detail { stroke: var(--piece-white); opacity: 0.55; }
+
+.board.chess .coord {
+  position: absolute;
+  z-index: 2;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  pointer-events: none;
+}
+.board.chess .coord.rank { top: 4px; left: 4px; }
+.board.chess .coord.file { bottom: 3px; right: 4px; }
+.board.chess .sq.light .coord { color: var(--dark); }
+.board.chess .sq.dark .coord { color: var(--light); }
+
+.board.chess .promotion {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  background: rgb(10 12 18 / 0.45);
+  border-radius: var(--radius);
+}
+.board.chess .choices {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.board.chess .choice {
+  width: clamp(44px, 12vw, 64px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  background: var(--light);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.board.chess .choice:hover { border-color: var(--accent); }
+.board.chess .cancel {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.moves-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column-reverse;
+}
+.movelist {
+  display: grid;
+  grid-template-columns: 2.4em 1fr 1fr;
+  gap: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.movelist .num { color: var(--muted); }
+.candidates span { color: var(--ink); }
+
+footer a { color: inherit; margin-left: 6px; }

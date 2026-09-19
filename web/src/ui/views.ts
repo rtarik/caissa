@@ -13,6 +13,8 @@ import { Isola, SIZE as I_SIZE, SQUARES as I_SQUARES } from "../games/isola";
 import { PASS, SIZE as R_SIZE, SQUARES as R_SQUARES } from "../games/reversi";
 import type { Game } from "../games/types";
 import { absoluteGrid, connect4LastMove, winningLine, type Grid } from "./board";
+import { chessView } from "./chessview";
+import { heatmap } from "./heatmap";
 
 export interface ViewContext<S = unknown> {
   game: Game<S>;
@@ -52,6 +54,10 @@ export interface View {
    * the same numbers laid out as a heatmap show exactly where the search looked.
    */
   visits(counts: number[], ctx: ViewContext): string;
+  /** An optional side panel, such as chess's move list. */
+  notes?(ctx: ViewContext): string;
+  /** What to ask for while a move is half made, for games whose moves take more than one click. */
+  prompt?(ctx: ViewContext): string;
 }
 
 /** A bar per action, for small action spaces. */
@@ -63,18 +69,6 @@ function bars(counts: number[], columns: number): string {
        title="${v} visits"></div>`)
     .join("");
   return `<div class="visits" style="grid-template-columns: repeat(${columns}, 1fr)">${cells}</div>`;
-}
-
-/** The same numbers laid over the board, for action spaces that are squares. */
-function heatmap(counts: number[], squares: number, columns: number): string {
-  const best = Math.max(...counts.slice(0, squares));
-  const cells = counts
-    .slice(0, squares)
-    .map((v) => `<div class="heat" style="opacity:${
-      best > 0 ? Math.max(0.04, v / best) : 0.04
-    }" title="${v} visits"></div>`)
-    .join("");
-  return `<div class="heatmap" style="grid-template-columns: repeat(${columns}, 1fr)">${cells}</div>`;
 }
 
 /** For games where one click is one turn. */
@@ -203,6 +197,7 @@ export const gomokuView: View = {
 
 export const isolaView: View = {
   layout: "grid-7 tiles",
+  prompt: () => "Now choose a square to destroy.",
 
   board(ctx) {
     const game = ctx.game as unknown as Isola;
@@ -391,4 +386,5 @@ export const VIEWS: Record<string, View> = {
   gomoku: gomokuView,
   isola: isolaView,
   dotsandboxes: dotsAndBoxesView,
+  chess: chessView,
 };

@@ -1,0 +1,12 @@
+{
+  "game": "chess",
+  "inputPlanes": 19,
+  "boardShape": [
+    8,
+    8
+  ],
+  "actionSize": 4672,
+  "parameters": 563034,
+  "generation": 0,
+  "simulations": 200
+}

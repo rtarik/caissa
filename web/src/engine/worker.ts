@@ -47,12 +47,27 @@ self.onmessage = async (event: MessageEvent<ToEngine>) => {
       for (const move of message.moves) state = game.apply(state, move);
       if (game.terminalValue(state) !== null) throw new Error("the game is already over");
 
+      const started = performance.now();
+      if (message.simulations === 0) {
+        // Instinct: the network's own first choice, with no search at all. It is
+        // how Maia plays human-like chess, and the most direct look at what a
+        // network has learned rather than what search recovers on its behalf.
+        const { priors, value } = await evaluator.evaluate(game, state);
+        post({
+          kind: "move",
+          action: argmax(priors),
+          value,
+          visits: Array.from(priors),
+          simulations: 0,
+          ms: performance.now() - started,
+        });
+        return;
+      }
+
       const search = new MCTS(game, evaluator as never, {
         ...DEFAULT_SEARCH,
         simulations: message.simulations,
       });
-
-      const started = performance.now();
       const root = await search.search(state, false);
       // Temperature zero: the engine is trying to win, not generating training
       // data, so it takes the most-visited move rather than sampling.
@@ -63,6 +78,7 @@ self.onmessage = async (event: MessageEvent<ToEngine>) => {
         action: argmax(policy),
         value: root.value(),
         visits: search.visitCounts(root),
+        simulations: message.simulations,
         ms: performance.now() - started,
       });
     }

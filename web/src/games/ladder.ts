@@ -24,6 +24,8 @@ export interface LadderEntry {
   blurb: string;
   /** What it forces the framework to handle that earlier games did not. */
   teaches: string;
+  /** Names for the two seats, where the game has its own: chess's White and Black. */
+  seats?: [string, string];
 }
 
 export const LADDER: LadderEntry[] = [
@@ -62,6 +64,7 @@ export const LADDER: LadderEntry[] = [
     title: "Chess",
     blurb: "The main event.",
     teaches: "Everything at once, plus a bootstrap from human games.",
+    seats: ["White", "Black"],
   },
 ];
 

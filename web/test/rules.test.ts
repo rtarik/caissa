@@ -6,12 +6,14 @@
  * should mean adding a row here, not writing a new test file.
  */
 import { describe, expect, it } from "vitest";
+import { Chess, ChessState, MOVES, actionOf, moveOf } from "../src/games/chess";
 import { Connect4 } from "../src/games/connect4";
 import { DotsAndBoxes, horizontal, vertical } from "../src/games/dotsandboxes";
 import { Gomoku } from "../src/games/gomoku";
 import { Isola } from "../src/games/isola";
 import { Reversi, PASS, SQUARES } from "../src/games/reversi";
 import type { Game } from "../src/games/types";
+import chessVectors from "./chess-vectors.json";
 import connect4Vectors from "./connect4-vectors.json";
 import dotsVectors from "./dotsandboxes-vectors.json";
 import gomokuVectors from "./gomoku-vectors.json";
@@ -25,7 +27,9 @@ interface Vectors {
   actionSize: number;
   cases: {
     moves: number[];
-    legal: number[];
+    legal?: number[];
+    /** Chess lists its legal actions instead of a 4,672-wide mask. */
+    legalIndices?: number[];
     toPlay: number;
     terminal: number | null;
     encoded: number[];
@@ -38,13 +42,29 @@ const SUBJECTS: { game: Game<unknown>; vectors: Vectors }[] = [
   { game: new Gomoku() as Game<unknown>, vectors: gomokuVectors as Vectors },
   { game: new Isola() as Game<unknown>, vectors: isolaVectors as Vectors },
   { game: new DotsAndBoxes() as Game<unknown>, vectors: dotsVectors as Vectors },
+  { game: new Chess() as Game<unknown>, vectors: chessVectors as Vectors },
 ];
 
+/** The mask a case expects, stored either as one or, for chess, as the legal indices. */
+function legalMask(testCase: Vectors["cases"][number], actionSize: number): number[] {
+  if (testCase.legal) return testCase.legal;
+  const mask = new Array<number>(actionSize).fill(0);
+  for (const index of testCase.legalIndices ?? []) mask[index] = 1;
+  return mask;
+}
+
 for (const { game, vectors } of SUBJECTS) {
+  // States are immutable, so a replayed position can be shared between tests -
+  // which matters for chess, whose cases sit up to hundreds of moves into a game.
+  const replayed = new Map<string, unknown>();
   const replay = (moves: number[]) => {
-    let state = game.initialState();
-    for (const move of moves) state = game.apply(state, move);
-    return state;
+    const key = moves.join(",");
+    if (!replayed.has(key)) {
+      let state = game.initialState();
+      for (const move of moves) state = game.apply(state, move);
+      replayed.set(key, state);
+    }
+    return replayed.get(key);
   };
 
   describe(`${game.name} agrees with Python`, () => {
@@ -61,7 +81,7 @@ for (const { game, vectors } of SUBJECTS) {
         expect(
           game.legalActions(replay(testCase.moves)).map(Number),
           `moves ${testCase.moves}`,
-        ).toEqual(testCase.legal);
+        ).toEqual(legalMask(testCase, vectors.actionSize));
       }
     });
 
@@ -112,6 +132,43 @@ for (const { game, vectors } of SUBJECTS) {
     });
   });
 }
+
+describe("chess's own complications", () => {
+  const game = new Chess();
+  const replay = (moves: number[]) => {
+    let state = game.initialState();
+    for (const move of moves) state = game.apply(state, move);
+    return state;
+  };
+
+  it("keeps exactly 1,858 of its 4,672 actions on the board, as Python does", () => {
+    expect(MOVES.length).toBe(4672);
+    expect(MOVES.filter(Boolean).length).toBe(1858);
+  });
+
+  it("names every legal move with an action of its own, and back", () => {
+    for (const testCase of (chessVectors as Vectors).cases.slice(0, 60)) {
+      const state = replay(testCase.moves);
+      const moves = state.moves();
+      const actions = moves.map((move) => actionOf(state, move));
+      expect(new Set(actions).size).toBe(actions.length);
+      actions.forEach((action, i) => expect(moveOf(state, action)).toEqual(moves[i]));
+      // And the fast internal generator agrees with chess.js's public one.
+      const official = state.board().moves({ verbose: true })
+        .map((m) => `${m.from}${m.to}${m.promotion ?? ""}`).sort();
+      expect(moves.map((m) => `${m.from}${m.to}${m.promotion ?? ""}`).sort()).toEqual(official);
+    }
+  });
+
+  it("gives Black's castling the same actions as White's", () => {
+    const white = ChessState.create("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+    const black = ChessState.create("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1");
+    const castle = (state: ChessState, from: string, to: string) =>
+      actionOf(state, { from, to, promotion: null });
+    expect(castle(black, "e8", "g8")).toBe(castle(white, "e1", "g1"));
+    expect(castle(black, "e8", "c8")).toBe(castle(white, "e1", "c1"));
+  });
+});
 
 describe("reversi's own complications", () => {
   const game = new Reversi();

@@ -8,10 +8,14 @@ import type { FromEngine, ToEngine } from "./engine/protocol";
 const asset = (path: string) => new URL(path, document.baseURI).href;
 
 const LEVELS = [
+  // No search: the network's first instinct. Human-like for a network trained
+  // on human games, and the plainest view of what any network has learned.
+  { label: "Instinct", simulations: 0 },
   { label: "Casual", simulations: 40 },
   { label: "Steady", simulations: 200 },
   { label: "Careful", simulations: 600 },
 ];
+const DEFAULT_LEVEL = 2;
 
 interface ModelIndex {
   models: { game: string; generation?: number; parameters?: number }[];
@@ -23,7 +27,7 @@ let game: Game<unknown> = createGame(entry.key);
 let view: View = VIEWS[entry.key];
 let moves: number[] = [];
 let humanFirst = true;
-let simulations = LEVELS[1].simulations;
+let simulations = LEVELS[DEFAULT_LEVEL].simulations;
 let thinking = false;
 let ready = false;
 let engineInfo = "";
@@ -44,9 +48,11 @@ worker.onmessage = (event: MessageEvent<FromEngine>) => {
     const params = message.parameters
       ? `${(message.parameters / 1000).toFixed(0)}k parameters`
       : "";
-    engineInfo = message.generation
-      ? `Generation ${message.generation} · ${params}`
-      : params;
+    engineInfo = message.generation === 0
+      ? `Untrained network · ${params}`
+      : message.generation
+        ? `Generation ${message.generation} · ${params}`
+        : params;
     render();
     advance();
   } else if (message.kind === "move") {
@@ -76,10 +82,20 @@ function loadEngine(): void {
 
 // ---------------------------------------------------------------- game state
 
+/**
+ * The position, replayed from the moves - once per move list rather than on
+ * every call, since a render asks several times and a chess position costs far
+ * more to rebuild than a Four in a Row one. `moves` is replaced, never mutated,
+ * so the array itself says whether the replay is current.
+ */
+let replayed: { moves: number[]; state: unknown } | null = null;
 const state = () => {
-  let current = game.initialState();
-  for (const move of moves) current = game.apply(current, move);
-  return current;
+  if (replayed?.moves !== moves) {
+    let current = game.initialState();
+    for (const move of moves) current = game.apply(current, move);
+    replayed = { moves, state: current };
+  }
+  return replayed.state;
 };
 
 /** The seat the human plays: 0 moves first. */
@@ -193,7 +209,7 @@ app.innerHTML = `
           <select id="level">
             ${LEVELS.map(
               (l, i) =>
-                `<option value="${l.simulations}"${i === 1 ? " selected" : ""}>${l.label}</option>`,
+                `<option value="${l.simulations}"${i === DEFAULT_LEVEL ? " selected" : ""}>${l.label}</option>`,
             ).join("")}
           </select>
         </div>
@@ -204,11 +220,13 @@ app.innerHTML = `
         <button class="action" id="new">New game</button>
       </section>
       <section class="panel" id="analysis"></section>
+      <section class="panel" id="notes" hidden></section>
       <section class="panel" id="about"></section>
     </aside>
   </div>
   <footer>
     Every move is computed on your device. Nothing is uploaded, and there is no server.
+    <a href="${asset("THIRD_PARTY_NOTICES.txt")}">Licences</a>
   </footer>
 `;
 
@@ -216,6 +234,8 @@ const gamesEl = document.getElementById("games")!;
 const boardEl = document.getElementById("board")!;
 const statusEl = document.getElementById("status")!;
 const analysisEl = document.getElementById("analysis")!;
+const notesEl = document.getElementById("notes")!;
+const seatEl = document.getElementById("first") as HTMLSelectElement;
 const aboutEl = document.getElementById("about")!;
 
 boardEl.addEventListener("click", (event) => {
@@ -271,10 +291,16 @@ function render(): void {
   const ctx = context();
 
   renderTabs();
+  const [first, second] = entry.seats ?? ["First", "Second"];
+  seatEl.options[0].text = first;
+  seatEl.options[1].text = second;
   boardEl.className = `board ${view.layout}${ctx.locked ? " locked" : ""}`;
   boardEl.innerHTML = view.board(ctx);
   statusEl.innerHTML = statusText() + view.detail(ctx);
   analysisEl.innerHTML = analysisPanel();
+  const notes = view.notes?.(ctx);
+  notesEl.hidden = !notes;
+  notesEl.innerHTML = notes ?? "";
   aboutEl.innerHTML = `
     <h2>${entry.title}</h2>
     <p class="teaches"><strong>${entry.blurb}</strong>${entry.teaches}</p>
@@ -301,7 +327,7 @@ function statusText(): string {
   }
   if (humanToMove() && mustPass()) return `<span class="muted">No legal move — passing.</span>`;
   if (humanToMove() && pending !== null) {
-    return `<span class="dot you"></span> Now choose a square to destroy.`;
+    return `<span class="dot you"></span> ${view.prompt?.(context()) ?? "Now finish the move."}`;
   }
   if (humanToMove() && lastMoveKeptTurn()) {
     return `<span class="dot you"></span> Box closed — your move again.`;
@@ -327,7 +353,7 @@ function analysisPanel(): string {
     <div class="meta"><span>You ${percent.toFixed(0)}%</span><span>Engine ${(100 - percent).toFixed(0)}%</span></div>
     ${view.visits(report.visits, context())}
     <div class="meta">
-      <span>${report.visits.reduce((a, b) => a + b, 0)} simulations</span>
+      <span>${report.simulations > 0 ? `${report.simulations} simulations` : "Network only, no search"}</span>
       <span>${Math.round(report.ms)} ms</span>
     </div>
     <div class="meta"><span>${engineInfo}</span></div>

@@ -1,3 +1,4 @@
+import { Chess } from "./chess";
 import { Connect4 } from "./connect4";
 import { DotsAndBoxes } from "./dotsandboxes";
 import { Gomoku } from "./gomoku";
@@ -12,6 +13,7 @@ export const GAMES: Record<string, () => Game<unknown>> = {
   gomoku: () => new Gomoku() as Game<unknown>,
   isola: () => new Isola() as Game<unknown>,
   dotsandboxes: () => new DotsAndBoxes() as Game<unknown>,
+  chess: () => new Chess() as Game<unknown>,
 };
 
 export function createGame(name: string): Game<unknown> {

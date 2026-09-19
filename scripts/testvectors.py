@@ -33,18 +33,53 @@ from caissa.mcts import MCTS, MCTSConfig
 #: evaluator every unfinished position is worth exactly zero, and zero looks the
 #: same whichever way it is flipped, so early-position vectors would agree with a
 #: broken port.
-SEARCH_PLIES = {"dotsandboxes": (54, 58)}
+SEARCH_PLIES = {"dotsandboxes": (54, 58), "chess": (10, 160)}
 
 #: Simulation budgets for those searches, per game. Dots & Boxes gets larger ones
 #: for the same reason it gets endgames: a search only exercises the bonus-move
 #: sign rule once it reaches finished games, and eight simulations rarely do.
 SEARCH_SIMULATIONS = {"dotsandboxes": [60, 150, 400]}
 
+#: Share of searches that must start where a move wins on the spot. The same
+#: problem Dots & Boxes solved with endgames: a random chess position almost never
+#: has a decided game within a knowledge-free search's reach, and the first chess
+#: vectors reached a result in 0 of 40 searches - every root value zero, which
+#: agrees with a port whatever it does with signs.
+SEARCH_WIN_IN_ONE = {"chess": 0.5}
+
+
+def wins_in_one(game, state) -> bool:
+    """Whether some legal move ends the game in the mover's favour."""
+    seat = game.to_play(state)
+    for action in np.flatnonzero(game.legal_actions(state)):
+        child = game.apply(state, int(action))
+        result = game.terminal_value(child)
+        if result is not None and (result if game.to_play(child) == seat else -result) > 0:
+            return True
+    return False
+
 #: Rules cases per game, as the committed vector files were generated. Recorded
 #: so that regenerating with the defaults reproduces those files exactly - which
 #: is how a change meant to alter no result (lazy children in the search, say)
 #: proves that it didn't.
-CASES = {"connect4": 250, "reversi": 150, "gomoku": 150, "isola": 150}
+CASES = {"connect4": 250, "reversi": 150, "gomoku": 150, "isola": 150, "chess": 300}
+
+#: Games too long to record every position of. A random chess game runs to a few
+#: hundred plies, so recording every position would fill the file from one or two
+#: games; every tenth position, and always the last, spreads it over dozens.
+CASE_STRIDE = {"chess": 10}
+
+#: Above this many actions a dense mask per position would dominate the file -
+#: 4,672 entries for every chess position - so legal actions, and the search's
+#: visit counts, are listed by index instead.
+SPARSE_ABOVE = 1000
+
+
+def number(value) -> int | float:
+    """A plane value for JSON: an integer where it is one, as every earlier game's
+    are, and the exact float otherwise - chess's fifty-move counter is a fraction."""
+    value = float(value)
+    return int(value) if value.is_integer() else value
 
 
 def main() -> None:
@@ -64,21 +99,27 @@ def main() -> None:
     terminal_cases = 0
 
     wanted = args.cases or CASES.get(game.name, 200)
+    stride = CASE_STRIDE.get(game.name, 1)
+    sparse = game.action_size > SPARSE_ABOVE
     while len(cases) < wanted:
         state = game.initial_state()
         moves: list[int] = []
-        # Record every position along a game, not just the last: the interesting
+        # Record positions all along a game, not just the last: the interesting
         # disagreements are mid-game, and finished positions exercise the
         # terminal logic that a sign error would flip.
         while True:
-            cases.append({
-                "moves": list(moves),
-                "legal": [int(v) for v in game.legal_actions(state)],
-                "toPlay": game.to_play(state),
-                "terminal": game.terminal_value(state),
-                "encoded": [int(v) for v in game.encode(state).ravel()],
-            })
             outcome = game.terminal_value(state)
+            if len(moves) % stride == 0 or outcome is not None:
+                legal = game.legal_actions(state)
+                case: dict = {"moves": list(moves)}
+                if sparse:
+                    case["legalIndices"] = [int(a) for a in np.flatnonzero(legal)]
+                else:
+                    case["legal"] = [int(v) for v in legal]
+                case["toPlay"] = game.to_play(state)
+                case["terminal"] = outcome
+                case["encoded"] = [number(v) for v in game.encode(state).ravel()]
+                cases.append(case)
             if outcome is not None:
                 terminal_cases += 1
                 break
@@ -108,17 +149,21 @@ def main() -> None:
             moves.append(action)
         if game.terminal_value(state) is not None:
             continue
+        if (len(searches) < round(40 * SEARCH_WIN_IN_ONE.get(game.name, 0))
+                and not wins_in_one(game, state)):
+            continue
         simulations = int(rng.choice(SEARCH_SIMULATIONS.get(game.name, [8, 25, 60, 150])))
         search = MCTS(game, UniformEvaluator(), MCTSConfig(simulations=simulations),
                       rng=mcts_rng)
         root = search.search(state, add_noise=False)
-        searches.append({
-            "moves": moves,
-            "simulations": simulations,
-            "visits": [root.children[a].visit_count if a in root.children else 0
-                       for a in range(game.action_size)],
-            "rootValue": root.value(),
-        })
+        if sparse:
+            visits = {"visitsByAction": [[a, child.visit_count]
+                                         for a, child in root.children.items() if child.visit_count]}
+        else:
+            visits = {"visits": [root.children[a].visit_count if a in root.children else 0
+                                 for a in range(game.action_size)]}
+        searches.append({"moves": moves, "simulations": simulations, **visits,
+                         "rootValue": root.value()})
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({
         "game": game.name,
@@ -130,8 +175,10 @@ def main() -> None:
     }) + "\n")
 
     decided = sum(1 for c in cases if c["terminal"] is not None)
+    resolved = sum(1 for s in searches if s["rootValue"] != 0)
     print(f"{len(cases)} cases and {len(searches)} searches -> {out} "
-          f"({out.stat().st_size / 1024:.0f} KB, {decided} finished positions)")
+          f"({out.stat().st_size / 1024:.0f} KB, {decided} finished positions, "
+          f"{resolved} searches reaching a result)")
 
 
 if __name__ == "__main__":

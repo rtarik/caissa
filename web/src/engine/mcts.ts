@@ -48,7 +48,10 @@ class Node<S> {
 
   constructor(
     public prior: number,
-    public state: S,
+    /** The position, or null until the search first comes this way. */
+    public state: S | null,
+    /** The move from the parent that leads here, to build `state` from. */
+    public action = -1,
     /** Whether this node's mover differs from the parent's - see `mcts.py`. */
     public flip = true,
   ) {}
@@ -100,10 +103,22 @@ export class MCTS<S> {
     const path = [root];
     let node = root;
     while (node.expanded) {
-      node = this.bestChild(node);
+      const child = this.bestChild(node);
+      if (child.state === null) this.build(node, child);
+      node = child;
       path.push(node);
     }
     return path;
+  }
+
+  /**
+   * Build a child's position on its first visit, noting whether the turn passed.
+   * Expansion records only priors: most children are never visited, and in chess
+   * building them all up front was most of the rules' cost. See `mcts.py`.
+   */
+  private build(parent: Node<S>, child: Node<S>): void {
+    child.state = this.game.apply(parent.state!, child.action);
+    child.flip = this.game.toPlay(child.state) !== this.game.toPlay(parent.state!);
   }
 
   private bestChild(node: Node<S>): Node<S> {
@@ -130,19 +145,15 @@ export class MCTS<S> {
 
   private async evaluate(node: Node<S>): Promise<number> {
     // A finished position needs no network: the rules give the exact answer.
-    const terminal = this.game.terminalValue(node.state);
+    const state = node.state!;
+    const terminal = this.game.terminalValue(state);
     if (terminal !== null) return terminal;
 
-    const { priors, value } = await this.evaluator.evaluate(this.game, node.state);
-    const legal = this.game.legalActions(node.state);
-    const seat = this.game.toPlay(node.state);
+    const { priors, value } = await this.evaluator.evaluate(this.game, state);
+    const legal = this.game.legalActions(state);
     for (let action = 0; action < legal.length; action++) {
-      if (!legal[action]) continue;
-      const child = this.game.apply(node.state, action);
-      node.children.set(
-        action,
-        new Node(priors[action], child, this.game.toPlay(child) !== seat),
-      );
+      // A prior and a move; the position waits for a visit (see `build`).
+      if (legal[action]) node.children.set(action, new Node<S>(priors[action], null, action));
     }
     return value;
   }

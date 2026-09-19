@@ -1,6 +1,11 @@
 {
   "models": [
     {
+      "game": "chess",
+      "generation": 0,
+      "parameters": 563034
+    },
+    {
       "game": "connect4",
       "generation": 40,
       "parameters": 352536
