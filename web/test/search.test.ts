@@ -63,10 +63,16 @@ function engine(game: Game<unknown>, simulations: number) {
 }
 
 for (const { game, searches } of SUBJECTS) {
+  // Three tests replay every case; states are immutable, so once is enough.
+  const replayed = new Map<string, unknown>();
   const replay = (moves: number[]) => {
-    let state = game.initialState();
-    for (const move of moves) state = game.apply(state, move);
-    return state;
+    const key = moves.join(",");
+    if (!replayed.has(key)) {
+      let state = game.initialState();
+      for (const move of moves) state = game.apply(state, move);
+      replayed.set(key, state);
+    }
+    return replayed.get(key);
   };
 
   describe(`${game.name} search agrees with Python`, () => {

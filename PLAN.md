@@ -664,6 +664,11 @@ batching evaluations across games (Phase 2c), not from faster rules.
       0.3 s in the browser
 - [x] Third-party notices for chess.js and ONNX Runtime Web, linked from the footer. Both licences
       require the notice to travel with the code, and minifying strips it from the bundle.
+- [x] **The deploy caught what the laptop did not.** The chess legal-move test replayed every
+      case from the opening, so its work grew with the square of a game's length: 2.2 s on the
+      M4 Max, over the 5 s limit on the deploy runner. The harness now continues each case from
+      the one before, replaying each game once (0.2 s), and move lookups compare chess.js's own
+      squares rather than building names. The suite runs in 1.5 s.
 - [ ] A picker for which exported stage to play: moved to 9.4, when there is a second network
 
 **9.3 — Data, a month at a time**

@@ -129,6 +129,7 @@ const internals = (board: Board): Internals => board as unknown as Internals;
 
 /** chess.js numbers squares 0x88-style from a8 = 0; here they are rank * 8 + file. */
 const fromOx88 = (square: number): number => (7 - (square >> 4)) * 8 + (square & 7);
+const toOx88 = (square: number): number => (7 - (square >> 3)) * 16 + (square & 7);
 
 const named = (move: RawMove): NamedMove => ({
   from: squareName(fromOx88(move.from)),
@@ -208,16 +209,18 @@ export class ChessState {
   }
 }
 
+/** The action for a move between two squares, seen from the side making it. */
+function indexOf(black: boolean, from: number, to: number, promotion?: string | null): number {
+  const [start, end] = black ? [mirror(from), mirror(to)] : [from, to];
+  const under = promotion === "n" || promotion === "b" || promotion === "r" ? promotion : null;
+  const action = INDEX.get(frameKey(start, end, under));
+  if (action === undefined) throw new Error(`no action for ${squareName(from)}${squareName(to)}`);
+  return action;
+}
+
 /** The action index of a move, in the frame of the player making it. */
 export function actionOf(state: ChessState, move: NamedMove): number {
-  let from = squareIndex(move.from);
-  let to = squareIndex(move.to);
-  if (!state.whiteToMove) [from, to] = [mirror(from), mirror(to)];
-  const promotion = move.promotion === "n" || move.promotion === "b" || move.promotion === "r"
-    ? move.promotion : null;
-  const action = INDEX.get(frameKey(from, to, promotion));
-  if (action === undefined) throw new Error(`no action for ${move.from}${move.to}`);
-  return action;
+  return indexOf(!state.whiteToMove, squareIndex(move.from), squareIndex(move.to), move.promotion);
 }
 
 /** The move an action index names in `state`. The inverse of {@link actionOf}. */
@@ -249,17 +252,21 @@ export class Chess implements Game<ChessState> {
   }
 
   legalActions(state: ChessState): boolean[] {
+    // Straight from chess.js's squares: this runs for every position the search
+    // expands, so no square names are built on the way.
     const mask = new Array<boolean>(ACTIONS).fill(false);
-    for (const move of state.moves()) mask[actionOf(state, move)] = true;
+    const black = !state.whiteToMove;
+    for (const move of state.raw()) {
+      mask[indexOf(black, fromOx88(move.from), fromOx88(move.to), move.promotion)] = true;
+    }
     return mask;
   }
 
   apply(state: ChessState, action: number): ChessState {
     const { from, to, promotion } = moveOf(state, action);
-    const legal = state.raw().find((move) => {
-      const candidate = named(move);
-      return candidate.from === from && candidate.to === to && candidate.promotion === promotion;
-    });
+    const [start, end] = [toOx88(squareIndex(from)), toOx88(squareIndex(to))];
+    const legal = state.raw().find((move) =>
+      move.from === start && move.to === end && (move.promotion ?? null) === promotion);
     if (!legal) throw new Error(`${from}${to} is not legal in ${state.fen}`);
     return state.after(legal);
   }

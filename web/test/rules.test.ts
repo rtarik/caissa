@@ -53,19 +53,35 @@ function legalMask(testCase: Vectors["cases"][number], actionSize: number): numb
   return mask;
 }
 
-for (const { game, vectors } of SUBJECTS) {
-  // States are immutable, so a replayed position can be shared between tests -
-  // which matters for chess, whose cases sit up to hundreds of moves into a game.
-  const replayed = new Map<string, unknown>();
-  const replay = (moves: number[]) => {
+/**
+ * Replays move lists, continuing from the previous list whenever the new one
+ * extends it. The vectors walk along games in order, so each game is replayed
+ * once rather than once per case - for chess, whose cases sit up to hundreds of
+ * moves into a game, the difference between a fraction of a second and a test
+ * that timed out on the deploy's slower machine. States are immutable, so the
+ * results are shared between tests too.
+ */
+function replayer<S>(game: Game<S>): (moves: number[]) => S {
+  const seen = new Map<string, S>();
+  let last = { moves: [] as number[], state: game.initialState() };
+  return (moves) => {
     const key = moves.join(",");
-    if (!replayed.has(key)) {
-      let state = game.initialState();
-      for (const move of moves) state = game.apply(state, move);
-      replayed.set(key, state);
+    const known = seen.get(key);
+    if (known !== undefined) return known;
+    const continues = last.moves.length <= moves.length
+      && last.moves.every((move, i) => moves[i] === move);
+    let state = continues ? last.state : game.initialState();
+    for (const move of moves.slice(continues ? last.moves.length : 0)) {
+      state = game.apply(state, move);
     }
-    return replayed.get(key);
+    seen.set(key, state);
+    last = { moves, state };
+    return state;
   };
+}
+
+for (const { game, vectors } of SUBJECTS) {
+  const replay = replayer(game);
 
   describe(`${game.name} agrees with Python`, () => {
     it("is checking the right game", () => {
@@ -135,11 +151,7 @@ for (const { game, vectors } of SUBJECTS) {
 
 describe("chess's own complications", () => {
   const game = new Chess();
-  const replay = (moves: number[]) => {
-    let state = game.initialState();
-    for (const move of moves) state = game.apply(state, move);
-    return state;
-  };
+  const replay = replayer(game);
 
   it("keeps exactly 1,858 of its 4,672 actions on the board, as Python does", () => {
     expect(MOVES.length).toBe(4672);
