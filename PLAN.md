@@ -144,8 +144,8 @@ an arbitrary list.
 | Reversi | **Pass moves** — no legal action does not mean the game is over. 8-fold symmetry. | 65 | done |
 | Gomoku | Large action space; policy targets become very sparse. | 81 | done |
 | Isolation | **Compound actions** (move *and* remove a tile) — action encoding design. | 392 | done |
-| Dots & Boxes | **Bonus moves** — closing a box earns another turn, so turns stop alternating. The result is a count. | 60 | *training* |
-| Chess | Everything at once, plus a supervised bootstrap. | 4672 | |
+| Dots & Boxes | **Bonus moves** — closing a box earns another turn, so turns stop alternating. The result is a count. | 60 | done |
+| Chess | Everything at once, plus a supervised bootstrap. | 4672 | *planning* |
 
 Isola is deliberate rehearsal for chess: a compound action space is exactly the problem
 AlphaZero's 73-plane encoding solves. Dots & Boxes is the most conceptually interesting,
@@ -565,13 +565,148 @@ openings leave a box on offer; with 1–20, 38%.
       learned to decline
 - [ ] A direct gen30 vs gen15 match, to settle whether the buffer reset slowed iterations 16–30
 
-### Phase 9+ — Chess
+### Phase 9 — Chess — *planning*
 
-- [ ] Chess representation (`python-chess`, AZ input planes, 73-plane move encoding)
-- [ ] Supervised bootstrap on Lichess games filtered to ~1800–1900
-- [ ] Self-play RL starting from the bootstrapped network
-- [ ] Rust MCTS (`shakmaty`) for ~10× throughput, shared between training and browser
-- [ ] Ship two personalities: the human-like bootstrap and the RL-strengthened network
+Chess is built and trained in stages. Every stage ends with something checked and, from 9.2
+on, a network the owner can play in the browser before deciding on the next stage. Downloads
+and training runs are sized so that any stage can stop and resume; nothing assumes one long
+session.
+
+**The shape of the plan, and why.** Zero-start self-play is out of reach on one machine —
+AlphaZero's chess run was ~4.7×10¹² network evaluations (*Measured facts*). So the network
+first **imitates** human games, supervised, the way AlphaGo started; self-play then improves
+on what it copied. The first network is a human-like player, the second should be stronger
+than the humans it learned from.
+
+| Stage | Produces | Ends with |
+|---|---|---|
+| 9.0 Plan | this section | the owner's go-ahead |
+| 9.1 Rules and encoding | `Chess` behind the `Game` protocol | tests; the cost of a search step, measured |
+| 9.2 Browser | a chess page | the owner plays an *untrained* network |
+| 9.3 Data, a month at a time | filtered human games as compact shards | statistics for each month |
+| 9.4 Imitation, stage by stage | the human-like network | the owner plays it after every stage |
+| 9.5 Yardsticks | puzzles and a Stockfish ladder | a rating on an outside scale |
+| 9.6 Self-play, stage by stage | the stronger network | the owner plays it after every stage |
+| 9.7 Ship | both personalities on the site | |
+
+9.1–9.3 are the setup; 9.4 and 9.6 are the training.
+
+**9.1 — Rules and encoding (Python)**
+
+- [ ] `src/caissa/games/chess.py` on python-chess. Check, mate, stalemate, castling, en passant,
+      promotion, insufficient material, the fifty-move rule and repetition are all delegated,
+      not rewritten (decision log). python-chess is GPL-3.0: fine here; the site uses chess.js,
+      so nothing GPL reaches the browser.
+- [ ] **Canonical perspective**: for Black the board is mirrored (ranks reversed, colours
+      swapped), so the network always sees the mover playing up the board — the same trick as
+      every earlier game, and why one network plays both sides.
+- [ ] **Input**: the current position only — 12 piece planes (the mover's first), castling
+      rights, en passant, the fifty-move counter and a repetition count, about 19 planes.
+      AlphaZero and Maia add eight plies of history; that is the first thing to try if move
+      prediction stalls.
+- [ ] **Actions**: AlphaZero's 73 move types × 64 origin squares = 4,672, in the mover's frame —
+      56 queen-like (8 directions × 7 distances), 8 knight moves, 9 underpromotions (promoting
+      to a queen is a queen-like move). Read off by the convolutional policy head Isolation
+      introduced for exactly this.
+- [ ] **No symmetry augmentation**: castling rights break the left-right mirror and pawns the
+      up-down one. The first game whose `symmetries()` is the identity alone.
+- [ ] Tests: in thousands of random positions every legal move maps to a unique index and back;
+      a position and its colour-mirrored twin encode identically; mate, stalemate, repetition,
+      the fifty-move rule, every promotion, castling out of and through check, en passant.
+- [ ] Measure a search step. python-chess is pure Python, and building ~35 child positions per
+      expansion may cost as much as the network evaluation (a whole Dots & Boxes expansion was
+      0.04 ms). If it does, create children lazily on their first visit — a change to the
+      game-agnostic search, which only ever needs an unvisited child's prior.
+
+**9.2 — Browser**
+
+- [ ] chess.js (BSD licence) for the rules in TypeScript; the encoding and move index ported and
+      checked against Python-generated vectors, search included, as for every other game
+- [ ] Board: click or drag to move, legal targets shown, a promotion choice, check and last-move
+      highlights, the move list, flip board
+- [ ] Two ways for the engine to play: **raw policy** — one move straight from the network, which
+      is how Maia plays human-like chess — and **search** at the usual strength levels
+- [ ] A picker for which exported stage to play, so stages can be compared by feel
+- [ ] Playable with an untrained network first, so "train a stage, export, play it" works before
+      any training does
+
+**9.3 — Data, a month at a time**
+
+Lichess publishes every rated game, month by month, as zstd-compressed PGN under CC0. Read
+from the server:
+
+| Month | Games | Download |
+|---|---|---|
+| 2016-01 | 4.8 M | 0.87 GB |
+| 2017-01 | 10.7 M | 1.90 GB |
+| 2018-01 | 17.9 M | 5.47 GB |
+| 2019-01 | 33.9 M | 10.1 GB |
+| 2022-01 | 102 M | 33.2 GB |
+| 2026-08 | 91.9 M | 30.2 GB |
+
+Games from 2017 on carry clock times in the move text, which is part of why later months grow
+faster than their game counts.
+
+- [ ] Filter while decompressing: rated standard games, **both players 1800–1999**, blitz or
+      slower (a two-second bullet move is not a decision worth copying), finished normally —
+      no time forfeits, whose result the board did not decide — and at least 20 plies
+- [ ] Hold out ~1% for validation, split **by game**: positions from one game are near-duplicates,
+      and letting them straddle the split would measure memory rather than skill
+- [ ] Store what happened, not what the network sees: the board, the move played and the result,
+      ~40 bytes a position, encoded at training time. Changing the input planes or the move
+      encoding then never means re-filtering a month (decision log).
+- [ ] One month per stage, downloaded resumably and deleted once converted. **First: 2017-01** —
+      1.9 GB, an estimated 0.4–0.6 M games in the band, to be measured. Maia trained on 12 M
+      games per 100-point band from 2017–2019; that is a ceiling, not a target.
+
+**9.4 — Imitation, stage by stage**
+
+- [ ] Network: 6 residual blocks × 64 channels with the conv policy head — Maia's size, and the
+      configuration benchmarked in *Measured facts* (0.63 M parameters, ~35 k positions/s of
+      training), so a 35 M-position month trains in about twenty minutes a pass
+- [ ] Policy target: the move the human played. Value target: the game's result for the mover.
+- [ ] **Value overfitting**: every position in a game shares one result, so the value head can
+      learn to recognise *games* instead of judging *positions*. AlphaGo's value network trained
+      on one position per game for this reason. Down-weight or subsample the value loss, and
+      watch its held-out value.
+- [ ] After each stage: held-out move-prediction accuracy (overall, and for opening, middlegame
+      and endgame), held-out value loss, a match against the previous stage; then export, and
+      the owner plays it. Stop adding months when accuracy stops rising. For reference, Maia's
+      6×64 networks, with history, predict about half of human moves.
+
+**9.5 — Yardsticks: a rating on an outside scale**
+
+Every Elo so far has been relative — one version of the agent against another. Chess is the
+first game with calibrated opponents to measure against.
+
+- [ ] Lichess puzzles (304 MB, 6.1 M rated puzzles, CC0): solve rate by puzzle rating, for the
+      raw policy and with search — a tactics rating
+- [ ] A Stockfish ladder: matches against Stockfish capped with `UCI_LimitStrength`/`UCI_Elo` at
+      several levels, driven through python-chess. Those levels are calibrated to computer
+      rating lists, not Lichess, so read the result as a range. Needs `brew install stockfish`.
+- [ ] Optional: Syzygy endgame tablebases (3–5 pieces, about 1 GB) for exact endgame grading,
+      the chess counterpart of `endgames.py`
+
+**9.6 — Self-play, stage by stage**
+
+- [ ] The replay buffer saved with each checkpoint — stages restart the process by design, and
+      Phase 8 measured what an empty buffer costs. Stored compactly: visit counts over the legal
+      moves, not dense 4,672-wide policies.
+- [ ] Resignation, as AlphaZero did: resign below a value threshold, but play ~10% of games out
+      regardless to measure how often resigning would have been wrong. A maximum game length,
+      and temperature over the first 30 plies.
+- [ ] Throughput before anything else. Python search over python-chess may manage only hundreds
+      of games an hour; batched leaf evaluation (Phase 2c) and lazy children are the cheap
+      fixes, a Rust search on `shakmaty` the expensive one
+- [ ] Don't forget the humans: keep a share of human positions in the buffer, and play every
+      stage against the imitation network as well as its predecessor
+- [ ] After each stage: arena results, the yardsticks, then the owner plays it
+
+**9.7 — Ship**
+
+- [ ] Two personalities: *human-like* (the imitation network, raw policy) and *strong* (the
+      self-play network with search)
+- [ ] Budget: a network of a few MB, and a move in a second or two on an ordinary laptop
 
 ---
 
@@ -970,6 +1105,8 @@ Decisions already argued through. Revisit deliberately, not by accident.
 | `python-chess` / `shakmaty` rather than hand-written movegen | Move generation is a tarpit and is not what this project is for. |
 | Game rules implemented twice (Python + TypeScript) rather than once in Rust | These games are 50–100 lines each; a Rust toolchain now would tax the actual learning goal. Divergence is caught by shared test vectors generated from Python. Chess sidesteps the issue since both languages have mature libraries. |
 | Browser ship before chess | Proves the deployment path early and keeps the project playable throughout. |
+| Chess in stages, each ending in a network the owner plays | The owner's own games are part of the evaluation, and no stage has to fit in one sitting. The price: every stage restarts training, so the chess replay buffer must survive checkpoints. |
+| Chess games stored as what happened, not as the network sees them | Board, move played and result, encoded at training time. Changing the input planes or the move encoding then never means re-downloading or re-filtering a month. |
 
 ---
 
