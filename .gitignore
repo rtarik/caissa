@@ -10,5 +10,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 /data/
-models/*.pt
+/models/
 web/dist/

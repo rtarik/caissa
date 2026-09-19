@@ -669,7 +669,7 @@ batching evaluations across games (Phase 2c), not from faster rules.
       M4 Max, over the 5 s limit on the deploy runner. The harness now continues each case from
       the one before, replaying each game once (0.2 s), and move lookups compare chess.js's own
       squares rather than building names. The suite runs in 1.5 s.
-- [ ] A picker for which exported stage to play: moved to 9.4, when there is a second network
+- [x] A picker for which exported stage to play: built in 9.4, once there was a second network
 
 **9.3 — Data, a month at a time**
 
@@ -728,19 +728,28 @@ month here is about a twentieth of that, which is why months are added a stage a
 
 **9.4 — Imitation, stage by stage**
 
-- [ ] Network: 6 residual blocks × 64 channels with the conv policy head — Maia's size, and the
-      configuration benchmarked in *Measured facts* (0.63 M parameters, ~35 k positions/s of
-      training), so a 35 M-position month trains in about twenty minutes a pass
-- [ ] Policy target: the move the human played. Value target: the game's result for the mover.
-- [ ] A picker on the page for which exported stage to play, so stages can be compared by feel
-- [ ] **Value overfitting**: every position in a game shares one result, so the value head can
-      learn to recognise *games* instead of judging *positions*. AlphaGo's value network trained
-      on one position per game for this reason. Down-weight or subsample the value loss, and
-      watch its held-out value.
-- [ ] After each stage: held-out move-prediction accuracy (overall, and for opening, middlegame
-      and endgame), held-out value loss, a match against the previous stage; then export, and
-      the owner plays it. Stop adding months when accuracy stops rising. For reference, Maia's
-      6×64 networks, with history, predict about half of human moves.
+- [x] `scripts/imitate.py --months <list> --stage <n>`: behaviour cloning on stored months. The
+      policy target is the move played — `imitation_loss`, tested to be exactly the AlphaZero
+      loss with a one-hot target — and the value target the game's result for the mover. AdamW,
+      batches of 1,024, a short warm-up then a cosine; about 28,000 positions a second, the batch
+      encoder keeping the GPU fed.
+- [x] Network: 6 residual blocks × 64 channels with the conv policy head, 563 k parameters —
+      Maia's size
+- [x] After each measurement, on 20,000 positions from held-out games: move-prediction accuracy
+      (overall, opening, middlegame, endgame), held-out policy and value loss, and the training
+      losses beside them
+- [x] **Value overfitting, watched rather than guessed at**: every position of a game shares one
+      result, so the value head could learn to recognise games instead of judging positions —
+      AlphaGo trained value on one position per game for this reason. Across the first pass,
+      held-out and training value loss agreed to three decimal places (0.713 each at the end).
+      One pass shows each position once; the risk returns with repeated passes, and the same two
+      numbers will show it.
+- [x] A picker on the page for which stage to play: `export.py --name --label` gives each stage
+      its own file, `index.json` lists them all, and the page offers the newest by default
+- [x] **Stage 1: January 2020, one pass, 22 minutes** — 49.3% of held-out moves predicted
+      (Results). For reference, Maia's 6×64 networks, with move history, predict about half.
+- [ ] Further stages: add months while held-out accuracy still rises — it was still rising, if
+      slowly, at the end of stage 1
 
 **9.4b — A human-like network at the owner's level (optional)**
 
@@ -1140,6 +1149,43 @@ boxes grew from 30% to 50%, and search stopped adding anything to it. Random ope
 the positions; they cannot supply a reason to care. The agent does what it was asked —
 maximise the chance of winning — and a person reads the result as a blunder because a person
 also counts the score.
+
+### Chess, imitation stage 1 (January 2020: 39.2 M positions, one pass)
+
+22 minutes on the M4 Max. Accuracy is how often the network's first choice among the legal
+moves is the move the 2200+ player made, on 20,000 positions from games held out whole:
+
+| positions seen | accuracy | opening | middlegame | endgame | held-out policy loss | value loss, training / held out |
+|---|---|---|---|---|---|---|
+| none (untrained) | 6.5% | | | | | |
+| 0.4 M (a 1% trial) | 32.6% | 45% | 27% | 30% | 2.63 | |
+| 2.0 M | 38.0% | 48% | 34% | 36% | 2.22 | 0.795 / 0.758 |
+| 9.8 M | 44.7% | 53% | 41% | 44% | 1.82 | 0.738 / 0.734 |
+| 19.6 M | 47.2% | 54% | 44% | 46% | 1.68 | 0.726 / 0.725 |
+| 29.4 M | 48.9% | 55% | 46% | 48% | 1.61 | 0.717 / 0.717 |
+| **39.2 M** | **49.3%** | **56%** | **46%** | **49%** | **1.59** | **0.713 / 0.713** |
+
+**Half of strong players' moves, from one month.** Maia's networks of the same size predict
+about half of human moves, with move history and 12 M games per rating band; this one reaches
+49% from the current position alone and 530 k games. Two-thirds of the final figure came from
+the first 1% of the data — the common patterns are learned almost at once, and every further
+point costs more.
+
+**The opening is the most predictable and the middlegame the least**: well-trodden theory,
+against positions nobody has quite seen before.
+
+**The value head judges modestly**: from a single position it names the winner of a decisive
+game 66% of the time. Blitz results are noisy, and a position forty moves from the end says
+only so much about how it ends.
+
+**Against the untrained network**, 100 games each: **+90 =10 −0 with no search, +100 =0 −0 with
+100 simulations**. The draws came only without search. Most likely because human games almost
+never reach positions as lopsided as beating a random mover: the copied policy knows how strong
+players play, not how to finish off a helpless opponent, and can shuffle into a repetition or a
+stalemate. A little search removes the problem entirely.
+
+**It plays like its teachers.** After 1.e4 its search at 200 simulations splits c5 42%, e5 23%,
+e6 10% — the Sicilian, the open game and the French, in the order strong players choose them.
 
 ### Names, and two deliberate deviations from the published games
 
@@ -1574,6 +1620,14 @@ not a substitute for the AlphaZero paper.
 - **Imitation has its own data hygiene** — hold out whole games, not positions, or validation
   measures how well the network remembers games it has half seen; and drop results a clock
   decided, or the value head learns that being ahead loses.
+- **Behaviour cloning copies choices, not reasons** — the network predicts half of what strong
+  players play, yet without search it drew ten games against a random mover: the teachers never
+  showed it a position that lopsided. Imitation is only as good as the positions its data
+  covers — the Dots & Boxes gift lesson from the other side — and search, then self-play, are
+  what reach beyond them.
+- **The learning curve is steep, then long** — about three-fifths of the whole gain, 6.5% to
+  49.3%, came from the first 1% of the data. Most of what can be imitated is common; each
+  further point of accuracy comes from rarer and harder decisions.
 
 ---
 

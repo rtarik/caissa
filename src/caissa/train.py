@@ -62,6 +62,47 @@ def alphazero_loss(policy_logits: torch.Tensor, value: torch.Tensor,
     return policy_loss + value_loss, policy_loss, value_loss
 
 
+def imitation_loss(policy_logits: torch.Tensor, value: torch.Tensor,
+                   target_action: torch.Tensor, target_value: torch.Tensor,
+                   value_weight: float = 1.0
+                   ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return ``(total, policy, value)`` for positions from human games.
+
+    Imitation learning - behaviour cloning - is the supervised stage AlphaGo began
+    with and chess begins with here. There is no search distribution to learn
+    from, only the move the human actually played, so the policy target is one
+    move: the cross-entropy of that single action, which is :func:`alphazero_loss`
+    with a one-hot target. Its floor is not zero, either - strong players facing
+    the same position disagree, and no network can predict every one of them.
+
+    ``value_weight`` is there because a game's positions all share one result.
+    The value head can learn to recognise games rather than to judge positions,
+    and turning its share of the loss down is one of the two usual remedies; the
+    other, AlphaGo's, is training value on one position per game.
+    """
+    policy_loss = F.cross_entropy(policy_logits, target_action)
+    value_loss = F.mse_loss(value, target_value)
+    return policy_loss + value_weight * value_loss, policy_loss, value_loss
+
+
+def imitation_step(net: PolicyValueNet, optimizer: torch.optim.Optimizer,
+                   batch: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+                   value_weight: float = 1.0) -> Losses:
+    """One gradient step on human moves. Leaves the network in training mode."""
+    positions, target_action, target_value = batch
+
+    net.train()
+    optimizer.zero_grad(set_to_none=True)
+    policy_logits, value = net(positions)
+    total, policy_loss, value_loss = imitation_loss(
+        policy_logits, value, target_action, target_value, value_weight
+    )
+    total.backward()
+    optimizer.step()
+
+    return Losses(total.item(), policy_loss.item(), value_loss.item())
+
+
 def make_optimizer(net: PolicyValueNet, config: TrainConfig) -> torch.optim.Optimizer:
     return torch.optim.AdamW(
         net.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay

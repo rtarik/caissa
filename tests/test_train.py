@@ -8,7 +8,14 @@ import torch
 
 from caissa.games.connect4 import COLS, Connect4
 from caissa.network import NetworkConfig, PolicyValueNet
-from caissa.train import TrainConfig, alphazero_loss, make_optimizer, train_step
+from caissa.train import (
+    TrainConfig,
+    alphazero_loss,
+    imitation_loss,
+    imitation_step,
+    make_optimizer,
+    train_step,
+)
 
 
 @pytest.fixture
@@ -115,3 +122,44 @@ def test_step_leaves_the_network_in_training_mode(game, net):
     net.eval()
     train_step(net, make_optimizer(net, TrainConfig()), fixed_batch(game, 8))
     assert net.training
+
+
+# ------------------------------------------------------------------ imitation
+
+
+def test_imitation_loss_is_the_alphazero_loss_with_a_one_hot_target():
+    """Behaviour cloning is the same objective with the search distribution
+    replaced by the one move a human played."""
+    torch.manual_seed(1)
+    logits, value = torch.randn(16, 40), torch.randn(16)
+    actions, target_value = torch.randint(0, 40, (16,)), torch.randn(16)
+    one_hot = torch.nn.functional.one_hot(actions, 40).float()
+
+    for got, want in zip(imitation_loss(logits, value, actions, target_value),
+                         alphazero_loss(logits, value, one_hot, target_value)):
+        assert got.item() == pytest.approx(want.item(), rel=1e-6)
+
+
+def test_the_value_weight_scales_only_the_value_term():
+    torch.manual_seed(2)
+    logits, value = torch.randn(8, 10), torch.randn(8)
+    actions, target_value = torch.randint(0, 10, (8,)), torch.randn(8)
+    total, policy, value_loss = imitation_loss(logits, value, actions, target_value, 0.25)
+    assert total.item() == pytest.approx(policy.item() + 0.25 * value_loss.item(), rel=1e-6)
+    _, same_policy, same_value = imitation_loss(logits, value, actions, target_value, 1.0)
+    assert (policy.item(), value_loss.item()) == (same_policy.item(), same_value.item())
+
+
+def test_imitation_learns_the_moves_it_is_shown(game, net):
+    positions, _, target_value = fixed_batch(game)
+    actions = torch.randint(0, COLS, (len(positions),), generator=torch.Generator().manual_seed(3))
+    optimizer = make_optimizer(net, TrainConfig(learning_rate=1e-2))
+
+    first = imitation_step(net, optimizer, (positions, actions, target_value))
+    for _ in range(200):
+        last = imitation_step(net, optimizer, (positions, actions, target_value))
+    net.eval()
+    with torch.no_grad():
+        predicted = net(positions)[0].argmax(dim=1)
+    assert last.policy < first.policy / 4
+    assert (predicted == actions).float().mean() > 0.9

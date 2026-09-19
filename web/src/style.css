@@ -573,3 +573,7 @@ footer {
 .candidates span { color: var(--ink); }
 
 footer a { color: inherit; margin-left: 6px; }
+
+/* An element's own display rule (.field is flex) would otherwise override the
+   hidden attribute and show what the page means to hide. */
+[hidden] { display: none !important; }

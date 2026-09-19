@@ -4,6 +4,7 @@ import { LADDER, type LadderEntry } from "./games/ladder";
 import type { Game } from "./games/types";
 import { VIEWS, type View } from "./ui/views";
 import type { FromEngine, ToEngine } from "./engine/protocol";
+import { networksByGame, type ModelEntry, type Network } from "./models";
 
 const asset = (path: string) => new URL(path, document.baseURI).href;
 
@@ -18,10 +19,13 @@ const LEVELS = [
 const DEFAULT_LEVEL = 2;
 
 interface ModelIndex {
-  models: { game: string; generation?: number; parameters?: number }[];
+  models: ModelEntry[];
 }
 
 let trained = new Set<string>();
+/** Each game's networks, newest first, and the one being played. */
+let networks = new Map<string, Network[]>();
+let network: Network | null = null;
 let entry: LadderEntry = LADDER[0];
 let game: Game<unknown> = createGame(entry.key);
 let view: View = VIEWS[entry.key];
@@ -73,10 +77,11 @@ function loadEngine(): void {
   error = null;
   engineInfo = "";
   render();
+  const file = network?.file ?? entry.key;
   worker.postMessage({
     kind: "load",
-    model: asset(`models/${entry.key}.onnx`),
-    manifest: asset(`models/${entry.key}.json`),
+    model: asset(`models/${file}.onnx`),
+    manifest: asset(`models/${file}.json`),
   } satisfies ToEngine);
 }
 
@@ -177,6 +182,8 @@ function reset(): void {
 function selectGame(next: LadderEntry): void {
   if (next.key === entry.key || !trained.has(next.key)) return;
   entry = next;
+  network = networks.get(entry.key)?.[0] ?? null;
+  renderNetworks();
   game = createGame(entry.key);
   view = VIEWS[entry.key];
   moves = [];
@@ -217,6 +224,10 @@ app.innerHTML = `
           <label for="first">You play</label>
           <select id="first"><option value="1" selected>First</option><option value="0">Second</option></select>
         </div>
+        <div class="field" id="network-field" hidden>
+          <label for="network">Network</label>
+          <select id="network"></select>
+        </div>
         <button class="action" id="new">New game</button>
       </section>
       <section class="panel" id="analysis"></section>
@@ -236,6 +247,8 @@ const statusEl = document.getElementById("status")!;
 const analysisEl = document.getElementById("analysis")!;
 const notesEl = document.getElementById("notes")!;
 const seatEl = document.getElementById("first") as HTMLSelectElement;
+const networkField = document.getElementById("network-field")!;
+const networkEl = document.getElementById("network") as HTMLSelectElement;
 const aboutEl = document.getElementById("about")!;
 
 boardEl.addEventListener("click", (event) => {
@@ -267,6 +280,26 @@ document.getElementById("first")!.addEventListener("change", (e) => {
   humanFirst = (e.target as HTMLSelectElement).value === "1";
   reset();
 });
+networkEl.addEventListener("change", () => {
+  const chosen = networks.get(entry.key)?.find((n) => n.file === networkEl.value);
+  if (!chosen || chosen.file === network?.file) return;
+  // A different opponent is a different game: start again against it.
+  network = chosen;
+  moves = [];
+  report = null;
+  pending = null;
+  thinking = false;
+  loadEngine();
+});
+
+/** The choice of network, offered only when the game has more than one. */
+function renderNetworks(): void {
+  const choices = networks.get(entry.key) ?? [];
+  networkField.hidden = choices.length < 2;
+  networkEl.innerHTML = choices
+    .map((n) => `<option value="${n.file}"${n.file === network?.file ? " selected" : ""}>${n.label}</option>`)
+    .join("");
+}
 
 // ----------------------------------------------------------------- rendering
 
@@ -363,7 +396,8 @@ function analysisPanel(): string {
 async function start(): Promise<void> {
   try {
     const index: ModelIndex = await fetch(asset("models/index.json")).then((r) => r.json());
-    trained = new Set(index.models.map((m) => m.game));
+    networks = networksByGame(index.models);
+    trained = new Set(networks.keys());
   } catch {
     // No index: fall back to offering the games that ship a view, so a missing
     // file degrades to "try it and see" rather than an empty menu.
@@ -371,6 +405,8 @@ async function start(): Promise<void> {
   }
   const first = LADDER.find((item) => trained.has(item.key));
   if (first) entry = first;
+  network = networks.get(entry.key)?.[0] ?? null;
+  renderNetworks();
   game = createGame(entry.key);
   view = VIEWS[entry.key];
   document.title = `Caissa — ${entry.title}`;

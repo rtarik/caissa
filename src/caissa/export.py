@@ -82,6 +82,10 @@ def write_index(directory: str | Path) -> Path:
     any given moment. Deriving that list from the directory rather than hard-coding
     it in TypeScript means the menu cannot claim a game that is not there, and
     cannot hide one that is.
+
+    A game can have several networks - chess keeps one per training stage, so the
+    owner can play each and compare - so every entry names its file and a label,
+    and the page defaults to the highest generation.
     """
     directory = Path(directory)
     entries = []
@@ -89,14 +93,18 @@ def write_index(directory: str | Path) -> Path:
         if manifest.name == "index.json":
             continue
         data = json.loads(manifest.read_text())
-        model = directory / f"{data['game']}.onnx"
-        if not model.exists():
+        if not (directory / f"{manifest.stem}.onnx").exists():
             continue
         entries.append({
             "game": data["game"],
+            "file": manifest.stem,
+            "label": data.get("label"),
             "generation": data.get("generation"),
             "parameters": data.get("parameters"),
         })
+    # By game, then generation - file names alone would put "chess-imitation1"
+    # before "chess", since a hyphen sorts before a full stop.
+    entries.sort(key=lambda entry: (entry["game"], entry["generation"] or 0))
 
     path = directory / "index.json"
     path.write_text(json.dumps({"models": entries}, indent=2) + "\n")

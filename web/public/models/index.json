@@ -2,31 +2,50 @@
   "models": [
     {
       "game": "chess",
+      "file": "chess",
+      "label": null,
       "generation": 0,
       "parameters": 563034
     },
     {
+      "game": "chess",
+      "file": "chess-imitation1",
+      "label": "Imitation 1",
+      "generation": 1,
+      "parameters": 563034
+    },
+    {
       "game": "connect4",
+      "file": "connect4",
+      "label": null,
       "generation": 40,
       "parameters": 352536
     },
     {
       "game": "dotsandboxes",
+      "file": "dotsandboxes",
+      "label": null,
       "generation": 55,
       "parameters": 658125
     },
     {
       "game": "gomoku",
+      "file": "gomoku",
+      "label": null,
       "generation": 40,
       "parameters": 593090
     },
     {
       "game": "isola",
+      "file": "isola",
+      "label": null,
       "generation": 30,
       "parameters": 386265
     },
     {
       "game": "reversi",
+      "file": "reversi",
+      "label": null,
       "generation": 30,
       "parameters": 498834
     }

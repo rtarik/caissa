@@ -62,6 +62,17 @@ Chess learns first from human games. This downloads a month of Lichess's public 
 .venv/bin/python scripts/lichess.py 2020-01
 ```
 
+Then train an imitation stage on the converted months, and export it beside the earlier ones —
+the page offers every exported stage:
+
+```bash
+.venv/bin/python scripts/imitate.py --months 2020-01 --stage 1
+```
+
+```bash
+.venv/bin/python scripts/export.py models/chess-imitation1.pt --name chess-imitation1 --label "Imitation 1"
+```
+
 `scripts/gifts.py` checks the other end of the game: how often a checkpoint takes a box handed
 to it early, a position its own self-play almost never produces.
 

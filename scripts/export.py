@@ -29,6 +29,10 @@ def main() -> None:
     parser.add_argument("--simulations", type=int, default=200,
                         help="default search budget the web app should use")
     parser.add_argument("--tolerance", type=float, default=1e-4)
+    parser.add_argument("--name", default=None,
+                        help="file name, without extension; defaults to the game's. Give each "
+                             "chess stage its own, so the page can offer them side by side")
+    parser.add_argument("--label", default=None, help="how the page names this network")
     args = parser.parse_args()
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
@@ -36,9 +40,11 @@ def main() -> None:
     net = PolicyValueNet.for_game(game, NetworkConfig(**checkpoint["config"]["network"]))
     net.load_state_dict(checkpoint["network"])
 
-    model = export_onnx(net, args.out / f"{game.name}.onnx", game)
-    write_manifest(args.out / f"{game.name}.json", game, net,
-                   generation=checkpoint["iteration"], simulations=args.simulations)
+    name = args.name or game.name
+    labelled = {"label": args.label} if args.label else {}
+    model = export_onnx(net, args.out / f"{name}.onnx", game)
+    write_manifest(args.out / f"{name}.json", game, net,
+                   generation=checkpoint["iteration"], simulations=args.simulations, **labelled)
 
     index = write_index(args.out)
     difference = verify_onnx(net, model, game, positions=128)
