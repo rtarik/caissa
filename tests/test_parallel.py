@@ -231,3 +231,41 @@ def test_parallel_arena_keeps_pairs_whole(game):
     with pytest.raises(ValueError, match="at least two games"):
         with ParallelArena(game.name, NET, SEARCH, PLAY, workers=2) as arena:
             arena.match(first, second, games=1, simulations=SEARCH.simulations, seed=0)
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_parallel_arena_gives_each_player_its_own_settings(game, workers):
+    """A match can be asymmetric: different depths, different exploration.
+
+    That is how the project asks whether more search is worth anything to a
+    network - it plays the network against itself at another depth - so the two
+    sides must not be quietly given the same settings. Swapping them, or using
+    one side's for both, changes the result, which is what this pins.
+    """
+    from caissa.arena import Player, play_match
+    from caissa.parallel import ParallelArena
+
+    first, second = spec(game, 0), spec(game, 1)
+    depths, exploration = (12, 3), (0.5, 4.0)
+
+    expected = []
+    for index, pairs in enumerate(split_games(4 // 2, workers)):
+        with single_threaded():
+            net_a = PolicyValueNet.for_game(game, first[0])
+            net_a.load_state_dict(first[1])
+            net_b = PolicyValueNet.for_game(game, second[0])
+            net_b.load_state_dict(second[1])
+            expected.append(play_match(
+                game,
+                Player("player", NetworkEvaluator(net_a), depths[0], c_puct=exploration[0]),
+                Player("opponent", NetworkEvaluator(net_b), depths[1], c_puct=exploration[1]),
+                pairs * 2, np.random.default_rng(100 + index), 2,
+            ))
+
+    with ParallelArena(game.name, NET, SEARCH, PLAY, workers=workers) as arena:
+        actual = arena.match(first, second, games=4, simulations=depths, seed=100,
+                             c_puct=exploration)
+
+    assert actual.wins == sum(r.wins for r in expected)
+    assert actual.draws == sum(r.draws for r in expected)
+    assert actual.losses == sum(r.losses for r in expected)

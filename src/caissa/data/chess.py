@@ -15,10 +15,12 @@ plane, and to :func:`~caissa.games.chess.action_of` action by action.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import chess
 import numpy as np
 
-from caissa.games.chess import INDEX, PIECES, PLANES, SQUARES, ChessState
+from caissa.games.chess import ACTIONS, INDEX, PIECES, PLANES, SQUARES, ChessState
 
 #: One position. Squares are absolute - a1 is 0, as White sees the board - and
 #: the mover's mirrored view is only taken when encoding.
@@ -138,6 +140,22 @@ def encode(positions: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return planes.reshape(n, PLANES, 8, 8), actions
 
 
+def load_months(root: Path, months: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    """Every stored position and game of the given months, numbered as one table."""
+    all_positions, all_games = [], []
+    games_so_far = positions_so_far = 0
+    for month in months:
+        positions = np.load(root / month / "positions.npy")
+        games = np.load(root / month / "games.npy")
+        positions["game"] += games_so_far
+        games["first"] += positions_so_far
+        all_positions.append(positions)
+        all_games.append(games)
+        games_so_far += len(games)
+        positions_so_far += len(positions)
+    return np.concatenate(all_positions), np.concatenate(all_games)
+
+
 def values(positions: np.ndarray, games: np.ndarray) -> np.ndarray:
     """Each position's game result for the player to move there: the value target."""
     result = games["result"][positions["game"]].astype(np.float32)
@@ -164,3 +182,40 @@ def move_of(stored: np.void) -> chess.Move:
     """The move that was played from a stored position."""
     move = int(stored["move"])
     return chess.Move(move & 63, (move >> 6) & 63, (move >> 12) or None)
+
+
+def human_samples(positions: np.ndarray, games: np.ndarray, count: int,
+                  rng: np.random.Generator) -> list["Sample"]:
+    """Stored human positions as training examples, for rehearsal during self-play.
+
+    Self-play trains a network on games it played itself, and the value head is
+    the part that suffers: every position of a game carries that game's single
+    result, so a window of a few hundred games is a few hundred labels however
+    many positions it holds. Fitted hard enough, a calibrated value head becomes
+    an overconfident one - and an overconfident value head turns search from
+    something that improves on the priors into something that overrules them.
+
+    Mixing these into every batch is *rehearsal*: the old task is kept in front of
+    the network while it learns the new one, so the value head keeps answering to
+    39 million human outcomes rather than to a few hundred of its own games.
+
+    Drawn from the training games only. The held-out ones are the exam that says
+    whether this worked, and an exam you have revised is not a measurement.
+    """
+    from caissa.selfplay import Sample
+
+    training = np.flatnonzero(~games["validation"][positions["game"]].astype(bool))
+    rows = rng.choice(training, size=min(count, len(training)), replace=False)
+    chosen = positions[np.sort(rows)]
+    planes, actions = encode(chosen)
+    labels = values(chosen, games)
+
+    samples = []
+    for index, action in enumerate(actions):
+        # The policy target is the move the human played, as a distribution with
+        # all of its mass on that one move - a search that visited nothing else.
+        policy = np.zeros(ACTIONS, dtype=np.float32)
+        policy[action] = 1.0
+        samples.append(Sample(encoded=planes[index], policy=policy,
+                              value=float(labels[index])))
+    return samples

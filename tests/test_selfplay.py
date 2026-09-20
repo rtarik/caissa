@@ -242,3 +242,131 @@ def test_random_openings_start_only_the_configured_share_of_games():
 
 def test_no_random_openings_unless_asked():
     assert set(opening_lengths(SelfPlayConfig(), range(20))) == {0}
+
+
+# ------------------------------------------------ game length caps and resignation
+
+
+class Doomed:
+    """A *consistent* evaluator: one seat is lost, so the other one is winning.
+
+    Values here are always the mover's own, so an evaluator that tells one player
+    -0.95 tells their opponent about +0.95 on the very next ply. A stub that hands
+    the same dismal value to both sides is the one case where counting plies and
+    counting a player's own moves agree - which is how a resignation rule that can
+    never fire in a real game passes a test that looks thorough.
+    """
+
+    def __init__(self, game, value=-0.95, seat=0, relent=()):
+        self.game = game
+        self.value = value
+        self.seat = seat
+        #: Moves of the doomed seat, counting from zero, where it sees hope instead.
+        self.relent = set(relent)
+        self.moves = 0
+
+    def run(self, state, temperature=1.0, add_noise=True):
+        policy = np.zeros(self.game.action_size)
+        policy[np.flatnonzero(self.game.legal_actions(state))[0]] = 1.0
+        if self.game.to_play(state) != self.seat:
+            return policy, -self.value
+        doomed = self.moves not in self.relent
+        self.moves += 1
+        return policy, self.value if doomed else -self.value
+
+
+def test_a_player_who_sees_no_hope_resigns(game):
+    """Resignation buys back the compute spent playing out lost games.
+
+    Two things have to be right. The count is of a player's *own* moves - their
+    opponent's confidence on the ply between is not a reprieve - so the doomed
+    player resigns on their second move, at ply 2. And the labels: the resigning
+    player is the one to move in the final recorded position, so that sample is
+    -1 and their opponent's +1. Backwards, it would teach the network that
+    hopeless positions are won, in silence.
+    """
+    config = SelfPlayConfig(resign_below=-0.9, resign_moves=2)
+    samples = play_game(game, Doomed(game), config)
+
+    assert len(samples) == 3, "resigned on the doomed player's second move"
+    assert [s.value for s in samples] == [-1.0, 1.0, -1.0]
+
+
+def test_the_opponent_s_confidence_is_not_a_reprieve(game):
+    """The same game with the second player doomed instead, to pin the seat.
+
+    If the counter were per ply rather than per player, both of these would run
+    to the end: one player's -0.95 would be cancelled by the other's +0.95 every
+    time, and resignation would quietly never happen.
+    """
+    config = SelfPlayConfig(resign_below=-0.9, resign_moves=2)
+    samples = play_game(game, Doomed(game, seat=1), config)
+
+    assert len(samples) == 4, "the second player's second move is ply 3"
+    assert [s.value for s in samples] == [1.0, -1.0, 1.0, -1.0]
+
+
+#: Filling columns left to right decides this game on ply 19.
+PLAYED_OUT = 19
+
+
+def test_one_bad_evaluation_is_not_enough_to_resign(game):
+    """A single low value is noise; a player's counter resets when it sees hope."""
+    config = SelfPlayConfig(resign_below=-0.9, resign_moves=2)
+    # Dismal on every second move of its own, so never twice running.
+    samples = play_game(game, Doomed(game, relent=range(1, 20, 2)), config)
+
+    assert len(samples) == PLAYED_OUT, "played on to a real result"
+    assert samples[-1].value != 0.0
+
+
+def test_games_are_played_out_unless_resignation_is_asked_for(game):
+    """The same hopeless evaluations, with the setting off, decide nothing."""
+    samples = play_game(game, Doomed(game), SelfPlayConfig())
+    assert len(samples) == PLAYED_OUT
+
+
+def test_a_player_can_resign_on_consecutive_plies_when_it_moves_twice():
+    """Dots & Boxes hands a player several moves in a row.
+
+    Those are consecutive plies *and* consecutive moves by the same player, so
+    resignation is allowed to fire across them - the rule is about a player's own
+    moves, not about how many plies went by.
+    """
+    game = DotsAndBoxes()
+    config = SelfPlayConfig(resign_below=-0.9, resign_moves=2)
+    samples = play_game(game, Doomed(game), config)
+
+    assert 0 < len(samples) < LINES
+    assert samples[-1].value == -1.0
+
+
+def test_a_capped_game_is_recorded_as_a_draw():
+    """Self-play games lengthen as a network improves.
+
+    A network that cannot force a win will shuffle until the rules stop it, which
+    in chess takes hundreds of moves of nothing. Calling it a draw at the cap
+    spends that compute on new games instead, and labels honestly: neither side
+    proved anything.
+    """
+    game = DotsAndBoxes()
+    samples = play_game(game, FirstLine(game), SelfPlayConfig(max_plies=10))
+
+    assert len(samples) == 10, "one sample per ply, then the cap"
+    assert [s.value for s in samples] == [0.0] * 10
+
+
+def test_an_uncapped_game_runs_to_the_end():
+    game = DotsAndBoxes()
+    samples = play_game(game, FirstLine(game), SelfPlayConfig())
+    assert len(samples) == LINES
+    assert any(s.value != 0.0 for s in samples), "a decided game, so the cap matters"
+
+
+def test_the_cap_counts_searched_plies_not_random_opening_ones():
+    """The random opening is not the agent's play, and must not eat its budget."""
+    game = DotsAndBoxes()
+    config = SelfPlayConfig(max_plies=10, random_opening_share=1.0,
+                            random_opening_plies=6)
+    samples = play_game(game, FirstLine(game), config, rng=np.random.default_rng(0))
+    assert len(samples) == 10

@@ -47,6 +47,29 @@ class SelfPlayConfig:
     random_opening_share: float = 0.0
     #: The longest random opening, in plies. Each draws its length from 1 to this.
     random_opening_plies: int = 16
+    #: Longest game to play before calling it a draw. Self-play games lengthen as a
+    #: network improves, and one that cannot force a win will shuffle until the rules
+    #: stop it - which in chess can take hundreds of moves. ``None`` leaves it to them.
+    max_plies: int | None = None
+    #: Resign when search's own value for the mover stays below this for
+    #: ``resign_moves`` moves running. It buys back the compute spent playing out lost
+    #: games, at the risk of throwing away ones that were not lost: AlphaZero used
+    #: -0.9 and played a share of games out anyway to measure how often it was wrong.
+    #: ``None`` plays everything out.
+    resign_below: float | None = None
+    resign_moves: int = 2
+
+
+def despairing(hopeless: dict[int, int], seat: int, value: float, below: float) -> int:
+    """Update and return how many of this seat's own moves running look lost.
+
+    The rule lives here rather than inline because two callers need exactly the
+    same one: self-play, which resigns by it, and the audit that measures how
+    often resigning by it is a mistake. A measurement of a slightly different
+    rule is worse than no measurement.
+    """
+    hopeless[seat] = hopeless.get(seat, 0) + 1 if value < below else 0
+    return hopeless[seat]
 
 
 @dataclass
@@ -83,12 +106,29 @@ def play_game(game, mcts: MCTS, config: SelfPlayConfig | None = None,
     positions: list[tuple[np.ndarray, np.ndarray, int]] = []
 
     ply = 0  # counts search's moves, so a random start still gets the temperature window
+    hopeless: dict[int, int] = {}  # consecutive dismal evaluations, per seat
     while (outcome := game.terminal_value(state)) is None:
+        if config.max_plies is not None and ply >= config.max_plies:
+            outcome = 0.0  # long enough: call it a draw rather than shuffle on
+            break
         temperature = config.temperature if ply < config.temperature_moves else 0.0
         # Noise is on: this is data generation, and the point is variety. During
         # evaluation or real play it would be turned off.
-        policy, _ = mcts.run(state, temperature=temperature, add_noise=True)
-        positions.append((game.encode(state), policy, game.to_play(state)))
+        seat = game.to_play(state)
+        policy, value = mcts.run(state, temperature=temperature, add_noise=True)
+        positions.append((game.encode(state), policy, seat))
+
+        if config.resign_below is not None:
+            # Search's value is the mover's own, so the test reads directly: this
+            # player thinks they are lost. Two of *their own* moves running, to
+            # shrug off a single bad evaluation - counted per seat, because the
+            # next ply is usually the opponent, whose value is the opposite by
+            # construction. Counting plies instead asks both players to despair
+            # at once, which a consistent evaluator never does: resignation would
+            # simply never fire, and nothing would say so.
+            if despairing(hopeless, seat, value, config.resign_below) >= config.resign_moves:
+                outcome = -1.0  # a loss for the player to move here, who resigned
+                break
 
         # Sample from the search policy rather than taking its argmax. At
         # temperature 0 the policy is already one-hot so this is the greedy move

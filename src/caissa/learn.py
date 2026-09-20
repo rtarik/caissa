@@ -37,6 +37,7 @@ import json
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 import torch
@@ -51,8 +52,13 @@ from caissa.network import (
     best_device,
 )
 from caissa.replay import ReplayBuffer
-from caissa.selfplay import SelfPlayConfig, generate
+from caissa.selfplay import Sample, SelfPlayConfig, generate
 from caissa.train import Losses, TrainConfig, make_optimizer, train_step
+
+
+def buffer_file(checkpoint: str | Path) -> Path:
+    """Where a checkpoint's replay window lives, if it was saved."""
+    return Path(checkpoint).with_suffix(".buffer.npz")
 
 
 @dataclass
@@ -93,6 +99,14 @@ class LearnConfig:
     #: Self-play worker processes. 1 (or None) runs in this process, which is
     #: slower but far easier to debug. See src/caissa/parallel.py.
     workers: int | None = None
+    #: Share of every training batch drawn from a fixed set of outside examples -
+    #: human games, for chess - rather than from self-play. Rehearsal: the old task
+    #: kept in front of the network while it learns the new one. Phase 9.6 measured
+    #: what its absence costs when the self-play window holds only a few hundred
+    #: games: the value head's confidence doubled in five iterations, and search,
+    #: which the value head steers, went from improving on the policy to ruining it.
+    #: 0 trains on self-play alone, as AlphaZero did - it had the games to afford it.
+    human_share: float = 0.0
     #: Where the gradient steps happen. None auto-detects. Training is batched,
     #: so the GPU wins by ~39x here; self-play is one position at a time, so it
     #: stays on CPU regardless. See the device note in this module's docstring.
@@ -143,7 +157,7 @@ class Learner:
     """Owns the network, the optimiser and the replay buffer across iterations."""
 
     def __init__(self, game, config: LearnConfig | None = None,
-                 seed: int | None = None):
+                 seed: int | None = None, human: Iterable[Sample] | None = None):
         self.game = game
         self.config = config or LearnConfig()
         self.rng = np.random.default_rng(seed)
@@ -156,6 +170,13 @@ class Learner:
         self.net = PolicyValueNet.for_game(game, self.config.network).to(self.device)
         self.optimizer = make_optimizer(self.net, self.config.train)
         self.buffer = ReplayBuffer(self.config.buffer_capacity)
+        # Rehearsal examples live in their own buffer: a fixed set that nothing
+        # evicts, rather than self-play data that ages out. Whoever builds them
+        # knows the game; the learner only knows they are samples.
+        rehearsal = list(human) if human is not None else None
+        self.human = ReplayBuffer(len(rehearsal)) if rehearsal else None
+        if self.human is not None:
+            self.human.extend(rehearsal)
         self.iteration = 0
         self.history: list[IterationStats] = []
         # A ParallelArena is a ParallelSelfPlay that can also run matches, so
@@ -242,9 +263,7 @@ class Learner:
         if len(self.buffer) >= self.config.min_buffer_before_training:
             totals = [0.0, 0.0, 0.0]
             for _ in range(self.config.train_steps_per_iteration):
-                batch = self.buffer.sample(
-                    self.config.train.batch_size, self.rng, self.device
-                )
+                batch = self._batch()
                 step = train_step(self.net, self.optimizer, batch)
                 totals[0] += step.total
                 totals[1] += step.policy
@@ -296,6 +315,18 @@ class Learner:
             opening_plies=opening_plies, names=names,
         )
 
+    def _batch(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """One training batch, part self-play and part rehearsal."""
+        size = self.config.train.batch_size
+        share = self.config.human_share if self.human is not None else 0.0
+        rehearsed = int(round(size * share))
+        if not rehearsed:
+            return self.buffer.sample(size, self.rng, self.device)
+
+        played = self.buffer.sample(size - rehearsed, self.rng, self.device)
+        humans = self.human.sample(rehearsed, self.rng, self.device)
+        return tuple(torch.cat(parts) for parts in zip(played, humans))
+
     def _run_gate(self, trained: bool) -> tuple[MatchResult | None, bool]:
         """Play the challenger against the incumbent and decide on promotion."""
         gate = self.config.gate
@@ -315,13 +346,18 @@ class Learner:
 
     # ------------------------------------------------------------- persistence
 
-    def save(self, path: str | Path) -> Path:
-        """Write a checkpoint.
+    def save(self, path: str | Path, buffer: bool = False) -> Path:
+        """Write a checkpoint, and with ``buffer`` the replay window beside it.
 
         The optimiser state goes in alongside the weights. AdamW carries
         per-parameter moment estimates, and resuming without them restarts the
         optimiser cold, which shows up as a visible stumble in training right
         after every resume.
+
+        The window is a separate file because it is large - half a gigabyte for a
+        chess run - and only wanted where a run is meant to continue. Without it a
+        resumed stage trains its first iterations on a single iteration's games;
+        Phase 8 measured what that costs.
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -337,6 +373,8 @@ class Learner:
             },
             path,
         )
+        if buffer:
+            self.buffer.save(buffer_file(path))
         return path
 
     def load(self, path: str | Path) -> None:
@@ -350,4 +388,12 @@ class Learner:
         if self.best_net is not None:
             self.best_net = self.cpu_net()
         self.optimizer.load_state_dict(checkpoint["optimizer"])
+        # A saved optimiser carries the learning rate it was saved with, which would
+        # quietly override the one this run was configured for - the tail of an
+        # imitation stage's cosine schedule, where self-play resumes from one.
+        for group in self.optimizer.param_groups:
+            group["lr"] = self.config.train.learning_rate
         self.iteration = checkpoint["iteration"]
+        window = buffer_file(path)
+        if window.exists():
+            self.buffer.restore(window)

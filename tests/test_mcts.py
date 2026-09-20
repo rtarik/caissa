@@ -278,3 +278,81 @@ def test_noise_is_applied_only_at_the_root(game):
         np.testing.assert_allclose(deeper, deeper[0])
         checked += 1
     assert checked > 0, "search never expanded a node below the root"
+
+
+# ------------------------------------------------------ the balance PUCT strikes
+
+
+class Opinionated:
+    """Knows nothing about values, but is sure which move is worth looking at."""
+
+    def __init__(self, favourite: int, weight: float = 8.0):
+        self.favourite = favourite
+        self.weight = weight
+
+    def evaluate(self, game, state) -> tuple[np.ndarray, float]:
+        priors = game.legal_actions(state).astype(np.float32)
+        priors[self.favourite] *= self.weight
+        return priors / priors.sum(), 0.0
+
+
+def spread(policy, favourite: int) -> float:
+    """Share of the visits that went anywhere but the favourite."""
+    return float(1.0 - policy[favourite])
+
+
+def test_c_puct_does_nothing_while_every_move_looks_the_same(game):
+    """It is an exchange rate, and there is nothing yet to exchange.
+
+    With flat values and no terminal in sight, every Q is zero and the score is
+    the exploration term alone. Scaling the only non-zero term cannot reorder
+    it, so two very different settings run the identical search - which is worth
+    pinning, because it says what the parameter actually trades off.
+    """
+    state = play(game, 3, 3, 4)
+    narrow, _ = make_mcts(game, simulations=80, c_puct=0.1,
+                          evaluator=Opinionated(favourite=0)).run(state, temperature=1.0)
+    wide, _ = make_mcts(game, simulations=80, c_puct=8.0,
+                        evaluator=Opinionated(favourite=0)).run(state, temperature=1.0)
+
+    np.testing.assert_array_equal(narrow, wide)
+
+
+def test_once_there_is_something_to_learn_c_puct_decides_how_much_it_counts(game):
+    """The same two settings, in a position where the rules answer one move.
+
+    The winning move comes back at Q = +1 while everything else sits at zero, so
+    now the two terms are in tension and the exchange rate matters: the cheaper
+    exploration is, the more the search piles onto what it has proven.
+    """
+    state = play(game, *WIN_IN_ONE)
+    narrow, _ = make_mcts(game, simulations=80, c_puct=0.1,
+                          evaluator=Opinionated(favourite=6)).run(state, temperature=1.0)
+    wide, _ = make_mcts(game, simulations=80, c_puct=8.0,
+                        evaluator=Opinionated(favourite=6)).run(state, temperature=1.0)
+
+    assert spread(wide, 0) > spread(narrow, 0)
+
+
+def test_far_too_much_exploration_will_not_back_a_proven_win(game):
+    """Raised high enough, the bonus outweighs a result the rules have confirmed.
+
+    Search still finds the mate - it looks at everything - and then spends its
+    visits elsewhere, because the exploration term swamps a Q of +1. Both ends of
+    this dial lose the game, which is why its middle is worth measuring rather
+    than assuming: Phase 9.6 measured 1.5 beating 3.0 by ~98 Elo in chess.
+    """
+    state = play(game, *WIN_IN_ONE)
+    found, _ = make_mcts(game, simulations=60, c_puct=500.0,
+                         evaluator=Opinionated(favourite=6)).run(state, temperature=1.0)
+
+    assert found[0] > 0.0, "it did look at the winning move"
+    assert found.argmax() == 6, "and spent its visits on the prior's favourite anyway"
+
+
+def test_the_default_backs_the_win(game):
+    """The setting the project actually uses has to pass the basic exam."""
+    state = play(game, *WIN_IN_ONE)
+    policy, _ = make_mcts(game, simulations=60,
+                          evaluator=Opinionated(favourite=6)).run(state, temperature=1.0)
+    assert policy.argmax() == 0

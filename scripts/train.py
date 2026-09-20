@@ -54,6 +54,25 @@ def main() -> None:
                              "reaching positions the agent's own play never would")
     parser.add_argument("--random-opening-plies", type=int, default=16,
                         help="longest random opening; each draws its length from 1 to this")
+    parser.add_argument("--temperature-moves", type=int, default=8,
+                        help="plies played at temperature 1 before greedy play; the "
+                             "opening variety the buffer lives on (AlphaZero: 30 for chess)")
+    parser.add_argument("--max-plies", type=int, default=None,
+                        help="call a self-play game drawn after this many plies")
+    parser.add_argument("--resign-below", type=float, default=None,
+                        help="resign when search values the position below this twice running")
+    parser.add_argument("--learning-rate", type=float, default=2e-3,
+                        help="lower it to fine-tune a network that already knows something")
+    parser.add_argument("--human", type=Path, default=None,
+                        help="stored human positions (chess: data/chess) to rehearse "
+                             "alongside self-play, so the value head keeps its calibration")
+    parser.add_argument("--human-months", nargs="+", default=["2020-01"])
+    parser.add_argument("--human-positions", type=int, default=100_000)
+    parser.add_argument("--human-share", type=float, default=0.5,
+                        help="share of every batch drawn from them; 0 is AlphaZero's")
+    parser.add_argument("--save-buffer", action="store_true",
+                        help="write the replay window beside each kept checkpoint, so the "
+                             "next stage continues with it rather than an empty one")
     parser.add_argument("--workers", type=int, default=10,
                         help="self-play processes; 1 runs in-process (easier to debug)")
     parser.add_argument("--device", default=None,
@@ -88,9 +107,13 @@ def main() -> None:
         network=NetworkConfig(blocks=args.blocks, channels=args.channels,
                               policy_head=args.policy_head),
         mcts=MCTSConfig(simulations=args.simulations),
-        selfplay=SelfPlayConfig(random_opening_share=args.random_openings,
-                                random_opening_plies=args.random_opening_plies),
-        train=TrainConfig(),
+        selfplay=SelfPlayConfig(temperature_moves=args.temperature_moves,
+                                random_opening_share=args.random_openings,
+                                random_opening_plies=args.random_opening_plies,
+                                max_plies=args.max_plies,
+                                resign_below=args.resign_below),
+        human_share=args.human_share if args.human else 0.0,
+        train=TrainConfig(learning_rate=args.learning_rate),
         gate=GateConfig(enabled=args.gate, games=args.gate_games,
                         threshold=args.gate_threshold,
                         simulations=args.simulations),
@@ -106,15 +129,30 @@ def main() -> None:
     anchor = None
     cumulative_elo = 0.0
 
-    with Learner(game, config, seed=args.seed) as learner:
+    rehearsal = None
+    if args.human:
+        # Imported here: everything else in this script is game-agnostic, and
+        # what a "human example" is happens to be chess-specific.
+        from caissa.data.chess import human_samples, load_months
+
+        positions, games = load_months(args.human, args.human_months)
+        rehearsal = human_samples(positions, games, args.human_positions, rng)
+        print(f"rehearsing {len(rehearsal):,} human positions from "
+              f"{', '.join(args.human_months)}: {args.human_share:.0%} of every batch",
+              flush=True)
+
+    with Learner(game, config, seed=args.seed, human=rehearsal) as learner:
         if args.resume:
             # Restores the optimiser's moment estimates alongside the weights.
             # Resuming without them restarts AdamW cold, which shows up as a
             # visible stumble in training immediately after every resume.
             learner.load(args.resume)
-            print(f"resumed from {args.resume} at iteration {learner.iteration}; the "
-                  f"replay buffer is not in the checkpoint, so it starts empty and "
-                  f"training waits until it holds {args.min_buffer:,} positions", flush=True)
+            window = (f"its replay window came too ({len(learner.buffer):,} positions)"
+                      if len(learner.buffer)
+                      else f"no replay window beside it, so training waits until "
+                           f"{args.min_buffer:,} positions have been played")
+            print(f"resumed from {args.resume} at iteration {learner.iteration}; {window}",
+                  flush=True)
 
         print(f"{args.game}: {learner.net.parameter_count():,} parameters, "
               f"{args.simulations} simulations per move, {args.workers} workers")
@@ -154,8 +192,9 @@ def main() -> None:
                 anchor = current
 
             if args.checkpoint_every and stats.iteration % args.checkpoint_every == 0:
-                learner.save(args.out / f"{args.game}-gen{stats.iteration:04d}.pt")
-            learner.save(args.out / f"{args.game}-latest.pt")
+                learner.save(args.out / f"{args.game}-gen{stats.iteration:04d}.pt",
+                             buffer=args.save_buffer)
+            learner.save(args.out / f"{args.game}-latest.pt", buffer=args.save_buffer)
 
     print(f"\ncheckpoints in {args.out}/")
 

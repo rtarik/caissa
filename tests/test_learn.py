@@ -11,13 +11,20 @@ from caissa.games.connect4 import Connect4
 from caissa.learn import GateConfig, LearnConfig, Learner
 from caissa.mcts import MCTSConfig
 from caissa.network import NetworkConfig
-from caissa.selfplay import SelfPlayConfig, generate
+from caissa.selfplay import Sample, SelfPlayConfig, generate
 from caissa.train import TrainConfig
 
 
 @pytest.fixture
 def game() -> Connect4:
     return Connect4()
+
+
+def make_samples(game, count, value=1.0):
+    state = game.initial_state()
+    policy = np.full(game.action_size, 1 / game.action_size, dtype=np.float32)
+    return [Sample(encoded=game.encode(state), policy=policy, value=value)
+            for _ in range(count)]
 
 
 def tiny(**overrides) -> LearnConfig:
@@ -321,3 +328,123 @@ def test_resuming_continues_the_iteration_count(game, tmp_path):
 
     stats = second.run_iteration()
     assert stats.iteration == 3, "should continue, not restart"
+
+
+# ---------------------------------------------------- carrying a stage's run state
+
+
+def test_a_checkpoint_can_carry_its_replay_window(game, tmp_path):
+    """Resuming with an empty buffer is not neutral.
+
+    The first iterations back would train on one iteration's games - a few
+    hundred positions from a handful of highly correlated games - which is
+    exactly the narrowness the window exists to prevent.
+    """
+    learner = Learner(game, tiny(), seed=0)
+    learner.run_iteration()
+    path = learner.save(tmp_path / "gen1.pt", buffer=True)
+
+    resumed = Learner(game, tiny(), seed=1)
+    resumed.load(path)
+
+    assert len(resumed.buffer) == len(learner.buffer) > 0
+    before = learner.buffer.sample(8, np.random.default_rng(4))
+    after = resumed.buffer.sample(8, np.random.default_rng(4))
+    for original, copy in zip(before, after):
+        assert torch.equal(original, copy)
+
+
+def test_a_checkpoint_without_a_window_resumes_empty(game, tmp_path):
+    """The window is large - half a gigabyte for chess - so it is opt-in."""
+    learner = Learner(game, tiny(), seed=0)
+    learner.run_iteration()
+    path = learner.save(tmp_path / "gen1.pt")
+
+    assert not path.with_suffix(".buffer.npz").exists()
+    resumed = Learner(game, tiny(), seed=1)
+    resumed.load(path)
+    assert len(resumed.buffer) == 0
+
+
+def test_a_resumed_run_uses_the_learning_rate_it_was_configured_with(game, tmp_path):
+    """An optimiser carries the rate it was saved with, which must not win.
+
+    Self-play resumes from the tail of an imitation run's cosine schedule, where
+    the saved rate is near zero. Inheriting it would leave the network frozen
+    while every log line reported healthy-looking losses.
+    """
+    learner = Learner(game, tiny(), seed=0)
+    for group in learner.optimizer.param_groups:
+        group["lr"] = 1e-9
+    path = learner.save(tmp_path / "frozen.pt")
+
+    config = tiny()
+    config.train.learning_rate = 2e-4
+    resumed = Learner(game, config, seed=0)
+    resumed.load(path)
+
+    assert [group["lr"] for group in resumed.optimizer.param_groups] == [2e-4]
+
+
+# ------------------------------------------------------------------- rehearsal
+
+
+def outside(game, count, value=0.5):
+    """Examples from somewhere other than self-play, marked by their value."""
+    state = game.initial_state()
+    policy = np.zeros(game.action_size, dtype=np.float32)
+    policy[0] = 1.0
+    return [Sample(encoded=game.encode(state), policy=policy, value=value)
+            for _ in range(count)]
+
+
+def test_batches_mix_in_the_configured_share_of_rehearsal(game):
+    """Self-play value targets are few labels spread over many positions.
+
+    A window of a few hundred games carries a few hundred outcomes however many
+    positions it holds, and a value head fitted hard on that becomes confident
+    rather than accurate - which is worse than useless, because search believes
+    it. Rehearsal keeps well-labelled outside examples in every batch.
+    """
+    config = tiny(human_share=0.25)
+    config.train.batch_size = 40
+    learner = Learner(game, config, seed=0, human=outside(game, 50))
+    learner.buffer.extend(make_samples(game, 100, value=-1.0))
+
+    _, _, values = learner._batch()
+
+    assert len(values) == 40
+    assert int((values == 0.5).sum()) == 10, "a quarter of the batch, from outside"
+    assert int((values == -1.0).sum()) == 30
+
+
+def test_rehearsal_examples_are_never_evicted(game):
+    """They are a fixed set, not a window: the point is that they do not age out."""
+    learner = Learner(game, tiny(human_share=0.5), seed=0, human=outside(game, 8))
+    learner.buffer.extend(make_samples(game, 400, value=-1.0))
+    for _ in range(3):
+        learner.buffer.extend(make_samples(game, 400, value=-1.0))
+
+    assert len(learner.human) == 8
+    _, _, values = learner._batch()
+    assert int((values == 0.5).sum()) == learner.config.train.batch_size // 2
+
+
+def test_without_rehearsal_batches_are_all_self_play(game):
+    """The default is AlphaZero's: its own games, and nothing else."""
+    learner = Learner(game, tiny(), seed=0)
+    learner.buffer.extend(make_samples(game, 100, value=-1.0))
+
+    _, _, values = learner._batch()
+
+    assert learner.human is None
+    assert set(values.tolist()) == {-1.0}
+
+
+def test_a_share_of_zero_leaves_the_batch_alone(game):
+    """Examples can be loaded and left unused, so the share is the only dial."""
+    learner = Learner(game, tiny(human_share=0.0), seed=0, human=outside(game, 50))
+    learner.buffer.extend(make_samples(game, 100, value=-1.0))
+
+    _, _, values = learner._batch()
+    assert set(values.tolist()) == {-1.0}

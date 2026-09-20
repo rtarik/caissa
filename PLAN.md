@@ -773,19 +773,70 @@ first game with calibrated opponents to measure against.
 
 **9.6 — Self-play, stage by stage**
 
-- [ ] The replay buffer saved with each checkpoint — stages restart the process by design, and
-      Phase 8 measured what an empty buffer costs. Stored compactly: visit counts over the legal
-      moves, not dense 4,672-wide policies.
-- [ ] Resignation, as AlphaZero did: resign below a value threshold, but play ~10% of games out
-      regardless to measure how often resigning would have been wrong. A maximum game length,
-      and temperature over the first 30 plies.
-- [ ] Throughput before anything else. Measured in 9.1: about 1,340 simulations a second per
-      worker, the network nine tenths of it — roughly 2,000 games an hour at 200 simulations a
-      move across eight workers, if games average 100 plies. The lever is batching evaluations
-      across games (Phase 2c); a Rust search on `shakmaty` would only speed up the tenth left
+- [x] **The machinery (9.6a)**, all of it tested against deliberate breakage:
+  - [x] The replay buffer saved with each checkpoint (`--save-buffer`) — stages restart the
+        process by design, and Phase 8 measured what an empty buffer costs. Stored compactly:
+        half-precision planes and only the actions search visited, 2.7 KB a sample against 42 KB
+        written out in full, so a 120,000-position chess window is 325 MB rather than 5 GB.
+  - [x] A maximum game length (`--max-plies`, drawn at the cap) and resignation
+        (`--resign-below`, two moves running below the threshold), both labelling honestly: the
+        cap is a draw for everyone, a resignation a loss for the side that resigned.
+  - [x] Fine-tuning settings: `--learning-rate`, which now overrides the rate inside a loaded
+        optimiser state — resuming from the tail of the imitation run's cosine schedule would
+        otherwise have trained at 5e-5 — and `--temperature-moves`, 30 for chess as in AlphaZero.
+  - [x] The held-out human exam lifted out of `scripts/imitate.py` into `caissa.data.heldout`,
+        so every stage sits the same exam and it can be tested (it could not be, inside a script)
+- [x] Throughput, measured before committing to a run: 100 games at 200 simulations on 10
+      workers in 222 s — **1,620 games an hour**, 93 plies a game. Better than the 9.1 estimate.
+      The lever is still batching evaluations across games (Phase 2c).
+- [x] **Stage 1, first attempt: self-play made it worse, and the reason is worth the section
+      below.** Five iterations of plain AlphaZero fine-tuning (150 games an iteration, 200
+      simulations, 200 gradient steps, lr 2e-4) cost **-228 Elo** against the network it started
+      from. See *Chess, self-play stage 1* in the results.
+- [x] **Rehearsal** (`--human`, `--human-share`): a fixed set of human positions mixed into
+      every batch, the fix the diagnosis pointed at. Half of each batch by default for chess.
+- [x] Stage 1, second attempt, with rehearsal: -104 Elo at 200 simulations, **-3 at 50**. The
+      collapse became a search-efficiency loss. Neither attempt produced a network worth
+      shipping, and both produced a measurement worth keeping.
+- [x] Tools this needed, all now in `scripts/`: `humanmoves.py` (held-out exam),
+      `improvement.py` (does search still beat the raw policy), `resignations.py` (what
+      resignation costs), and per-player `--simulations` / `--c-puct` in `evaluate.py`, which is
+      what made the diagnosis possible at all
+- [ ] **Open: what to try next.** The value head is the binding constraint — 65% sign accuracy
+      on held-out positions, and search is worth 541 Elo when it is hedged enough not to be
+      believed. Candidates, in the order the evidence supports:
+      1. more imitation data (another month or two) so the value head is *accurate* before
+         self-play makes it confident;
+      2. policy-only self-play — freeze the value head, needs a `--value-weight` flag;
+      3. more simulations a move (800 rather than 200), which is 4x the compute for a policy
+         target that improves on the prior by 2.3 points instead of 1.0;
+      4. accept Imitation 1 as the chess engine and spend the time on Phase 9.5's yardsticks
+         instead, so any future stage is measured on an outside scale.
+- [x] **How often resignation is wrong — measured** (`scripts/resignations.py`, 60 games at 200
+      simulations from the imitation network, played out in full with the rule replayed over the
+      record). At AlphaZero's -0.9 threshold: **83% of games resign, 100% of them genuinely
+      lost, 47% of all plies saved** — self-play throughput roughly doubles for no wrong labels.
+      -0.85 mislabels 2% of games and -0.80 mislabels 4%, so the threshold stays at -0.9.
+
+      | threshold | resigned | was lost | was drawn | was won | plies saved |
+      |---|---|---|---|---|---|
+      | -0.99 | 68% | 100% | 0% | 0% | 30% |
+      | -0.95 | 82% | 100% | 0% | 0% | 42% |
+      | **-0.90** | **83%** | **100%** | **0%** | **0%** | **47%** |
+      | -0.85 | 87% | 98% | 2% | 0% | 51% |
+      | -0.80 | 90% | 96% | 2% | 2% | 54% |
+
+- [x] **A bug the first version of this hid.** Resignation counted *plies* below the threshold,
+      not a player's own moves. Values are the mover's own, so in a game where turns alternate
+      the rule asked both players to despair on consecutive plies — which a consistent evaluator
+      never does, so resignation would simply never have fired, silently. The test that passed
+      used a stub handing the same dismal value to both sides, the one case where the two
+      readings agree: it pinned the implementation instead of the intent. The rule is now one
+      function, `selfplay.despairing`, shared by self-play and the audit so they cannot drift.
 - [ ] Don't forget the humans: keep a share of human positions in the buffer, and play every
       stage against the imitation network as well as its predecessor
-- [ ] After each stage: arena results, the yardsticks, then the owner plays it
+- [ ] After each stage: arena results, the human exam (`scripts/humanmoves.py`) for forgetting,
+      the yardsticks, then the owner plays it
 
 **9.7 — Ship**
 
@@ -1150,6 +1201,124 @@ the positions; they cannot supply a reason to care. The agent does what it was a
 maximise the chance of winning — and a person reads the result as a blunder because a person
 also counts the score.
 
+### Chess, self-play stage 1 — first attempt: a collapse, diagnosed
+
+Five iterations of self-play from the imitation network, as AlphaZero would do it: 150 games an
+iteration at 200 simulations, 200 gradient steps of batch 256 at lr 2e-4, resignation at -0.9,
+30 plies of temperature, no human data in the loop. Every loss inside the run fell — total
+2.07 → 1.92, policy 1.57 → 1.52, value 0.50 → 0.40 — and the agent got much weaker.
+
+| measurement | imitation 1 | gen 5 |
+|---|---|---|
+| **arena, 200 simulations a move** | — | **21.2%, -228 Elo** [-367, -133] |
+| arena, no search (raw policy) | — | 47.2%, -19 Elo (not significant) |
+| held-out human move accuracy | 49.8% | 47.3% |
+| held-out value loss | 0.718 | 0.862 |
+| mean \|v\| on human positions | 0.295 | 0.519 |
+| positions called decided (\|v\| > 0.9) | 5.9% | 17.0% |
+| search agrees with strong humans | 48.5% (+1.0 over its own policy) | 42.5% (**-3.3**) |
+
+Read in order, those rows tell the whole story:
+
+1. **The policy head was fine.** Without search the two networks are indistinguishable. Whatever
+   went wrong is not "the network forgot how to play".
+2. **The value head lost its calibration.** Its confidence nearly doubled and the share of
+   positions it called decided tripled, while its error on held-out human positions rose 20%.
+   It did not become better or worse at *ranking* positions so much as certain about them.
+3. **Search is steered by the value head, so search broke.** For the imitation network, 200
+   simulations agree with strong humans slightly *more often* than its own policy does: search
+   improves on the priors, which is the assumption the whole method rests on. For gen 5, search
+   agrees *less* often than its own policy. Search had stopped being a policy improvement
+   operator and become a policy *degradation* operator.
+4. **The arena measures search against search**, so it reported the full -228 Elo while the
+   networks themselves were level.
+
+Why the value head went: every position of a self-play game carries that game's single result,
+so a window of 750 games is 750 labels however many positions it holds — and 1,000 gradient
+steps were taken on them. This is AlphaGo's value-overfitting problem arriving from the
+self-play side rather than the supervised side. AlphaZero does not meet it because its window
+is 500,000 games; at 750 there is nothing to stop the head fitting the noise, and an
+overconfident value head is worse than an uncertain one, because search believes it.
+
+The fix is **rehearsal**: keep well-labelled human positions in every batch while the network
+learns from its own games, so the value head keeps answering to 39 M outcomes rather than to a
+few hundred. The alternative — far more games per gradient step — is the same fix by volume,
+and this machine does not have the volume.
+
+**The loss curves said none of this.** They fell throughout, because a policy loss measured
+against a search that has itself drifted falls when the network agrees with a worse teacher.
+Nothing inside the training loop can catch this; only measurements from outside it can —
+the arena, the held-out exam, and the comparison between the network's own policy and what
+search does with it.
+
+### Chess, self-play stage 1 — second attempt: rehearsal, and a deeper reason
+
+The same five iterations with half of every batch drawn from human positions, and 100 gradient
+steps an iteration instead of 200. Rehearsal did what it was meant to:
+
+| measurement | imitation 1 | gen 5, no rehearsal | gen 5, rehearsal |
+|---|---|---|---|
+| held-out human accuracy | 49.8% | 47.3% | **48.5%** |
+| held-out value loss | 0.718 | 0.862 | **0.744** |
+| mean \|v\| on human positions | 0.295 | 0.519 | **0.349** |
+| positions called decided | 5.9% | 17.0% | **7.2%** |
+| policy entropy over legal moves | 1.54 | — | 1.58 |
+| arena, no search | — | 47.2% (ns) | 49.2% (ns) |
+
+The value head kept its calibration, the policy never moved, and the two networks are
+indistinguishable when they play from the policy head alone. And yet, with search, gen 5 was
+still clearly weaker — until the same match was played at a different depth:
+
+| simulations a move | gen 5 (rehearsal) vs imitation 1 |
+|---|---|
+| **50** | 49.5%, **-3 Elo** [-49, +42] — indistinguishable |
+| **200** | 35.5%, **-104 Elo** [-151, -60] |
+
+Two hundred games each, the same pair of networks, opposite answers. That is the whole finding:
+
+**The value head did not get worse at ranking positions — it got more confident, and PUCT reads
+confidence as authority.** On self-play positions both heads call the winner equally often
+(75.6%), gen 5's squared error is even slightly lower, and its mean \|v\| is 0.309 → 0.392. At
+50 simulations the priors decide most selections and the two networks play alike; at 200 there
+are enough visits for Q to take over, and the extra search is spent exploiting a signal no more
+accurate than before. More search made the imitation network stronger and this one *relatively*
+weaker.
+
+The imitation value head is heavily hedged - mean \|v\| 0.295 where the true mean is 0.876 - and
+that hedging is load-bearing. It keeps a 65%-accurate value head from overruling a 50%-accurate
+policy that cost 39 M positions to train. Self-play's first effect is to remove the hedge.
+
+**The obvious knob does not fix it.** If search leans too hard on the values, lean it back onto
+the priors — that is what `c_puct` is for. It made things worse:
+
+| match, 200 games at 200 simulations | result |
+|---|---|
+| gen 5 at c_puct 3 vs imitation 1 at 1.5 | 28.7%, -158 Elo (worse than the -104 at 1.5) |
+| imitation 1 at c_puct 3 vs itself at 1.5 | 36.2%, **-98 Elo** |
+
+`c_puct` is not a trust dial, it is an exchange rate between what search has learned and what
+the network expected, and raising it buys exploration with depth. At a fixed budget of 200
+simulations both networks would rather commit. (It is also inert when every Q is equal —
+scaling the only non-zero term cannot reorder it — which is why the search tests pin it in a
+position where the rules have answered something.)
+
+**What self-play actually cost was the ability to use search.** Each network played against
+*itself* at a shallower depth:
+
+| network | 200 simulations vs 50 |
+|---|---|
+| imitation 1 | 95.8%, **+541 Elo** |
+| gen 5 (rehearsal) | 93.5%, **+463 Elo** |
+
+Search is worth about 540 Elo to the imitation network — far more than any training difference
+measured anywhere in this project. Self-play left the moves alone and took about 80 Elo off
+*that*: the four numbers agree to within their intervals (-3 at 50 simulations, minus 541, plus
+463, gives -81 against a measured -104). The loss is not in what the network plays, it is in
+what search can still do with it.
+
+So the useful way to state the result: **five iterations of self-play cost this agent roughly a
+sixth of what search was worth to it, and left everything else untouched.**
+
 ### Chess, imitation stage 1 (January 2020: 39.2 M positions, one pass)
 
 22 minutes on the M4 Max. Accuracy is how often the network's first choice among the legal
@@ -1231,6 +1400,11 @@ Decisions already argued through. Revisit deliberately, not by accident.
 | Chess in stages, each ending in a network the owner plays | The owner's own games are part of the evaluation, and no stage has to fit in one sitting. The price: every stage restarts training, so the chess replay buffer must survive checkpoints. |
 | Chess games stored as what happened, not as the network sees them | Board, move played and result, encoded at training time. Changing the input planes or the move encoding then never means re-downloading or re-filtering a month. |
 | Chess main line imitates strong games (both players 2200+), not the owner's level | The value head learns who went on to win, and at club level that is often decided by a blunder long after the position; stronger players' results track positions better. A stronger prior also wastes fewer simulations, and every bit of strength imitation provides is self-play compute not spent. The price is data — a month holds a fifth as many such games — and human-likeness at the owner's level, which becomes its own optional network. Filtered from the official CC0 dumps rather than the Lichess Elite Database, which states no licence. |
+| Self-play positions stored compactly, and the window saved with the checkpoint | Half-precision planes and only the actions search visited: 2.7 KB a chess sample against 42 KB, because a 4,672-wide policy is about thirty visited moves and 4,640 zeros. That is what makes a window affordable to keep in memory *and* to write out, and a written-out window is what lets a stage resume without spending its first iterations training on a single iteration's correlated games. |
+| Resignation measured offline rather than by playing a share of games out | AlphaZero played ~10% of resigned games to the end to count how often resignation was wrong. Doing that here means a second outcome per game travelling back through the worker pool, complicating every stage and every game for one number. A separate script that replays the condition with resignation off answers the same question, on demand, for any network. |
+| The held-out human exam lives in the library, not in the imitation script | More than one stage has to sit it - self-play is graded on it for forgetting - and it has to be identical across stages to be comparable. A measurement that decides things earns tests, and code inside `scripts/` cannot be imported by them. |
+| Self-play from an imitated network rehearses human positions (half of every batch) | Measured, not assumed: without it, five iterations cost -228 Elo by wrecking the value head's calibration (results). A self-play window of a few hundred games is a few hundred value labels, and AlphaZero's answer - 500,000 games in the window - is not available on one laptop. Rehearsal buys the same protection with the 39 M human outcomes already on disk. It is a departure from AlphaZero, and the reason is a hardware budget, not a disagreement. |
+| Strength is judged with search *and* without it | The two disagreed by 209 Elo on the same pair of networks, which is what localised the fault to the value head in one match rather than a day of guessing. `--simulations 0` plays straight from the policy head. |
 
 ---
 
@@ -1628,6 +1802,66 @@ not a substitute for the AlphaZero paper.
 - **The learning curve is steep, then long** — about three-fifths of the whole gain, 6.5% to
   49.3%, came from the first 1% of the data. Most of what can be imitated is common; each
   further point of accuracy comes from rarer and harder decisions.
+- **Resignation is a trade between compute and labels** — cutting a lost game short is free
+  speed only while the side resigning really was lost; every false resignation labels a whole
+  game a loss for someone who was not losing. That makes it the one self-play setting that can
+  corrupt the training signal, so the threshold is a measured quantity, not a preference:
+  -0.9 saves 47% of all plies here and was never wrong in 60 games.
+- **Who a counter belongs to** — resignation first counted plies below the threshold rather
+  than a player's own moves. Since values are always the mover's own, that asked both players
+  to despair at once: it could not fire in a game where turns alternate, and nothing said so.
+  Any rule that spans moves has to name whose moves it spans — the Phase 8 lesson about seats,
+  met again in a new place.
+- **A stub can be too helpful** — the test for that rule used an evaluator that told both sides
+  they were losing, which no real evaluator does, and that is exactly the case where the broken
+  reading and the correct one agree. A test built from an impossible situation pins the
+  implementation rather than the intent.
+- **Storage shapes what is affordable to keep** — a chess policy target is thirty visited moves
+  and 4,640 zeros; keeping only the visits, in half precision, is 2.7 KB a sample against 42 KB,
+  and that alone is the difference between a replay window that fits in memory and one that
+  does not. Compression is not an optimisation here, it is what makes the window possible.
+- **Resuming carries more than weights** — an optimiser state carries the learning rate it was
+  saved with. Resuming self-play from the tail of an imitation run's cosine schedule would have
+  trained at 5e-5 while the run reported healthy losses, because every loss falls when nothing
+  moves.
+- **Search is a policy improvement operator — until it isn't** — AlphaZero trains the policy
+  towards search's visit counts because those visits are better than the priors that produced
+  them. That is an assumption about the *value head*, which is what search follows, and it can
+  fail: a network whose value head has become overconfident searches *worse* than it plays. Then
+  every iteration teaches the network to imitate a worse teacher, and nothing inside the loop
+  objects. Measured here: search agreed with strong humans +1.0 points more often than the raw
+  policy before, and -3.3 points less after.
+- **Confidence is not accuracy, and search believes confidence** — the collapsed value head's
+  error on human positions rose only 20%, but the share of positions it called decided tripled.
+  PUCT follows values, so a head that is *certain and wrong* prunes the right move away, while a
+  head that is *uncertain and wrong* lets the priors and the visit counts carry the search.
+- **The effective sample size for a value head is games, not positions** — every position in a
+  game carries that game's single result. A 30,000-position window of 750 games holds 750 value
+  labels. AlphaGo hit this training on whole human games and answered with one position per
+  game; AlphaZero avoids it with a window of 500,000 games. On a laptop, rehearsal is the
+  affordable answer.
+- **Rehearsal** — keeping examples of the old task in every batch while a network learns a new
+  one, the standard defence against catastrophic forgetting. Here: half of each batch drawn
+  from human games, so self-play can move the network without being the only thing that does.
+- **Falling losses prove nothing about strength** — the collapsed run's every loss fell
+  monotonically while it lost 228 Elo. A policy loss measured against a drifting search falls
+  when the network agrees with a worse teacher. Only measurements from outside the loop - the
+  arena, a held-out exam, a comparison of the network with and without search - can see it.
+- **Measure with search and without it** — the same two networks were 209 Elo apart depending
+  on whether search was switched on. That gap is a diagnosis: equal without search and far apart
+  with it means the fault is in the value head, not the policy.
+- **Measure at more than one depth, too** — the same pair of networks was 104 Elo apart at 200
+  simulations and level at 50. A single depth would have reported a straightforward regression;
+  two depths said what it actually was, a loss of search *efficiency* rather than of skill.
+- **c_puct is an exchange rate, not a trust dial** — it prices what search has learned against
+  what the network expected. When every Q is equal it does nothing at all, since scaling the
+  only non-zero term cannot reorder it; when results disagree with priors, raising it buys
+  breadth by spending depth. At a fixed simulation budget, both chess networks measured here
+  preferred to commit: c_puct 1.5 beat 3.0 by ~98 Elo.
+- **Search is worth more than training, at this scale** — going from 50 to 200 simulations is
+  +541 Elo for the imitation network. Every training difference measured in this project is
+  smaller than that, which sets the priority: protect what search can do before chasing what
+  the network knows.
 
 ---
 

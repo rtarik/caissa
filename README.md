@@ -73,6 +73,32 @@ the page offers every exported stage:
 .venv/bin/python scripts/export.py models/chess-imitation1.pt --name chess-imitation1 --label "Imitation 1"
 ```
 
+Self-play continues from there, at a lower learning rate, carrying its replay window from
+checkpoint to checkpoint, and rehearsing human positions in half of every batch — without which
+the value head loses its calibration in a few iterations and takes search down with it (PLAN.md,
+*Chess, self-play stage 1*):
+
+```bash
+.venv/bin/python scripts/train.py --game chess --resume models/chess-imitation1.pt --iterations 21 --games 150 --simulations 200 --train-steps 100 --blocks 6 --channels 64 --policy-head conv --temperature-moves 30 --max-plies 200 --resign-below -0.9 --buffer 120000 --min-buffer 20000 --learning-rate 2e-4 --human data/chess --human-share 0.5 --save-buffer --workers 10
+```
+
+Three scripts watch a self-play stage from outside its own loop, where its losses cannot
+flatter it. `humanmoves.py` grades checkpoints on held-out human moves, `improvement.py` asks
+whether search still improves on the network's own policy, and `resignations.py` measures how
+often resigning would have thrown a game away:
+
+```bash
+.venv/bin/python scripts/humanmoves.py models/chess-imitation1.pt models/chess-gen0020.pt
+```
+
+```bash
+.venv/bin/python scripts/improvement.py models/chess-gen0020.pt --simulations 200 800
+```
+
+```bash
+.venv/bin/python scripts/resignations.py models/chess-gen0020.pt --games 60
+```
+
 `scripts/gifts.py` checks the other end of the game: how often a checkpoint takes a box handed
 to it early, a position its own self-play almost never produces.
 

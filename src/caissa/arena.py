@@ -42,12 +42,17 @@ class Player:
     #: 0 plays straight from the policy head, with no search at all. Useful for
     #: asking what the *network* learned rather than what search can rescue.
     simulations: int = 50
+    #: How much PUCT leans on the priors rather than on the values it has seen.
+    #: Per player, because the right setting depends on the network: a value head
+    #: worth believing earns a low one, a weak one does not.
+    c_puct: float = MCTSConfig.c_puct
 
     def choose(self, game, state, rng: np.random.Generator) -> int:
         if self.simulations == 0:
             priors, _ = self.evaluator.evaluate(game, state)
             return int(priors.argmax())
-        mcts = MCTS(game, self.evaluator, MCTSConfig(simulations=self.simulations),
+        mcts = MCTS(game, self.evaluator,
+                    MCTSConfig(simulations=self.simulations, c_puct=self.c_puct),
                     rng=rng)
         # No Dirichlet noise and no temperature: this is the player trying to
         # win, not generating training data.

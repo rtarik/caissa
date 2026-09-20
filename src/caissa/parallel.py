@@ -194,7 +194,11 @@ class MatchTask:
     game_name: str
     player: tuple[NetworkConfig, dict]
     opponent: tuple[NetworkConfig, dict]
-    simulations: int
+    #: Simulations for (player, opponent); they need not match, so a network can
+    #: be played against itself at another depth.
+    simulations: tuple[int, int]
+    #: PUCT exploration for (player, opponent); they need not match.
+    c_puct: tuple[float, float]
     #: Always even: a worker plays whole colour-reversed pairs, never half of one.
     games: int
     opening_plies: int
@@ -213,8 +217,10 @@ def _run_match(task: MatchTask) -> tuple[int, int, int]:
     game = GAMES[task.game_name]()
     result = play_match(
         game,
-        Player("player", _rebuild(game, task.player), task.simulations),
-        Player("opponent", _rebuild(game, task.opponent), task.simulations),
+        Player("player", _rebuild(game, task.player), task.simulations[0],
+               c_puct=task.c_puct[0]),
+        Player("opponent", _rebuild(game, task.opponent), task.simulations[1],
+               c_puct=task.c_puct[1]),
         task.games,
         np.random.default_rng(task.seed),
         task.opening_plies,
@@ -236,11 +242,14 @@ class ParallelArena(ParallelSelfPlay):
     """
 
     def match(self, player: tuple[NetworkConfig, dict], opponent: tuple[NetworkConfig, dict],
-              games: int, simulations: int, seed: int, opening_plies: int = 2,
-              names: tuple[str, str] = ("player", "opponent")) -> MatchResult:
+              games: int, simulations: int | tuple[int, int], seed: int,
+              opening_plies: int = 2,
+              names: tuple[str, str] = ("player", "opponent"),
+              c_puct: tuple[float, float] = (MCTSConfig.c_puct,) * 2) -> MatchResult:
         if self._pool is None:
             raise RuntimeError("use ParallelArena as a context manager")
 
+        depths = simulations if isinstance(simulations, tuple) else (simulations,) * 2
         pairs = games // 2
         if pairs < 1:
             raise ValueError("a match needs at least two games, to make one pair")
@@ -253,7 +262,7 @@ class ParallelArena(ParallelSelfPlay):
         tasks = [
             MatchTask(
                 game_name=self.game_name, player=player, opponent=opponent,
-                simulations=simulations, games=count * 2,
+                simulations=depths, c_puct=c_puct, games=count * 2,
                 opening_plies=opening_plies, seed=seed + index,
             )
             for index, count in enumerate(split_games(pairs, self.workers))

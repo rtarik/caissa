@@ -45,8 +45,14 @@ def main() -> None:
     parser.add_argument("second", type=Path)
     parser.add_argument("--game", default="connect4", choices=sorted(GAMES))
     parser.add_argument("--games", type=int, default=100)
-    parser.add_argument("--simulations", type=int, default=50,
-                        help="0 plays straight from the policy head")
+    parser.add_argument("--simulations", type=int, nargs="+", default=[50],
+                        help="0 plays straight from the policy head; two values give each "
+                             "player its own depth, which is how to ask whether more search "
+                             "is worth anything to a network")
+    parser.add_argument("--c-puct", type=float, nargs="+", default=[MCTSConfig.c_puct],
+                        help="PUCT exploration; one value for both players, or two to give "
+                             "each its own - a weak value head deserves a higher one, since "
+                             "the search then leans on the priors instead")
     parser.add_argument("--opening-plies", type=int, default=2)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--workers", type=int, default=1,
@@ -54,12 +60,18 @@ def main() -> None:
     args = parser.parse_args()
 
     game = GAMES[args.game]()
+    c_puct = tuple(args.c_puct) if len(args.c_puct) > 1 else (args.c_puct[0],) * 2
+    depths = (tuple(args.simulations) if len(args.simulations) > 1
+              else (args.simulations[0],) * 2)
     first, first_config, first_iteration = load(args.first, game)
     second, second_config, second_iteration = load(args.second, game)
 
     print(f"{args.first.name} (iteration {first_iteration}) vs "
           f"{args.second.name} (iteration {second_iteration})")
-    print(f"{args.games} games at {args.simulations} simulations; "
+    exploration = ("" if c_puct[0] == c_puct[1] == MCTSConfig.c_puct
+                   else f", c_puct {c_puct[0]:g} vs {c_puct[1]:g}")
+    played = (f"{depths[0]}" if depths[0] == depths[1] else f"{depths[0]} vs {depths[1]}")
+    print(f"{args.games} games at {played} simulations{exploration}; "
           f"this sample resolves ~{resolvable_elo(args.games):.0f} Elo\n", flush=True)
 
     if args.workers > 1:
@@ -69,14 +81,17 @@ def main() -> None:
             result = arena.match(
                 (first_config, first.state_dict()),
                 (second_config, second.state_dict()),
-                games=args.games, simulations=args.simulations, seed=args.seed,
+                games=args.games, simulations=depths, seed=args.seed,
                 opening_plies=args.opening_plies, names=(args.first.stem, args.second.stem),
+                c_puct=c_puct,
             )
     else:
         result = play_match(
             game,
-            Player(args.first.stem, NetworkEvaluator(first), args.simulations),
-            Player(args.second.stem, NetworkEvaluator(second), args.simulations),
+            Player(args.first.stem, NetworkEvaluator(first), depths[0],
+                   c_puct=c_puct[0]),
+            Player(args.second.stem, NetworkEvaluator(second), depths[1],
+                   c_puct=c_puct[1]),
             args.games,
             np.random.default_rng(args.seed),
             args.opening_plies,
