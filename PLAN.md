@@ -845,6 +845,51 @@ first game with calibrated opponents to measure against.
       was built
 - [ ] Budget: a network of a few MB, and a move in a second or two on an ordinary laptop
 
+### Phase 10 — The site, for people who just want to play — **done**
+
+The engine work stops here (9.6's open list stands). What was left was a site that read like a
+lab notebook: six text tabs, an analysis panel of simulation counts and visit heatmaps on
+screen by default, and every game wearing Four in a Row's red-and-yellow-on-blue.
+
+- [x] **A gallery, then a game.** `#/` lists the six games as cards with their own icon and a
+      line on how to play; `#/play/<game>` is a focused board with a back link. The URL hash
+      does the routing, so the back button, a bookmark and a reload all behave.
+- [x] **The technical half, folded away.** The play screen shows the board, whose turn it is
+      and the result. A quiet *Engine details* toggle brings back the evaluation bar, the visit
+      heatmap and the per-game notes, and remembers the choice. Everything about *how* it plays
+      moved to a *How it works* page, linked once, quietly, from the header.
+- [x] **A palette per game**, driven entirely by the variables the board rules already read:
+      red and yellow on blue stay Four in a Row's alone, Reversi gets black and white on green
+      felt, Gomoku a wooden board with a drawn grid, Isolation teal and coral on slate, Dots &
+      Boxes pencil on paper, chess its existing set.
+- [x] **Icons** drawn for each game, the chess one borrowed from the board's own knight rather
+      than drawn twice.
+- [x] **Difficulty renamed and measured.** Beginner / Casual / Strong / Master, and **Master is
+      now the default** - it takes under a second a move in every game (898 ms for chess at 600
+      simulations, 990 ms for Dots & Boxes), so there was nothing to protect anyone from.
+      `scripts/levels.py` measures what each rung is worth per game; the table ships with the
+      site and is in the results below.
+
+**Two bugs the site had, both found by playing it rather than by reading it.**
+
+- [x] **Isolation could not destroy the square you came from** - the one square players reach
+      for first. Neither rules implementation was wrong: chess had arrived with a global
+      `.piece` CSS rule carrying `pointer-events: none`, Isola had been using `piece` as a cell
+      class since long before, and the collision made that one button dead. Nothing in either
+      language could see it; the button was there, correctly classed, and did nothing. The
+      chess pieces are now `.chess-piece`, and `web/test/styles.test.ts` fails if any unscoped
+      rule claims a class the boards use for cells, or turns off pointing at one.
+- [x] **Gomoku refused most of the board** - the first stone had to be the centre point, and
+      later stones had to touch an existing one. That was the training restriction
+      (`NEIGHBOURHOOD`, added because self-play from a knowledge-free network cannot otherwise
+      reach a finished game) leaking into the game people play. It is now a constructor flag,
+      off by default and available for retraining. Safe because the trained network *learned*
+      the restriction rather than relying on it: with the mask lifted it puts 0.0-0.5% of its
+      prior on the points the mask used to hide, and picks the same move in 59 of 60 positions.
+      The Gomoku vectors needed `SEARCH_WIN_IN_ONE` afterwards - free-style, a knowledge-free
+      search reaches a result in none of forty searches, which is the restriction's own
+      docstring coming true in the test file.
+
 ---
 
 ## Results
@@ -1200,6 +1245,32 @@ boxes grew from 30% to 50%, and search stopped adding anything to it. Random ope
 the positions; they cannot supply a reason to care. The agent does what it was asked —
 maximise the chance of winning — and a person reads the result as a blunder because a person
 also counts the score.
+
+### The four difficulty levels, measured (Phase 10)
+
+Each level plays the one below it, 60 games a rung (24 for chess), the same network on both
+sides, `scripts/levels.py`. The only difference is how many positions it searches: 0, 40, 200,
+600. Read them within a game - Elo does not transfer between games, and none of these numbers
+mean anything on a human scale.
+
+| Game | Casual over Beginner | Strong over Casual | Master over Strong | Beginner to Master |
+|---|---|---|---|---|
+| Four in a Row | +176 | +199 | +114 | **~488** |
+| Reversi | +325 | +352 | +290 | **~967** |
+| Gomoku | +168 | +154 | +58 | **~381** |
+| Isolation | +147 | +108 | +223 | **~478** |
+| Dots & Boxes | +260 | +176 | +134 | **~569** |
+| Chess | +470 | clean sweep | +374 | unmeasurable |
+
+What the spread says: **search is worth wildly different amounts in different games.** Reversi
+gains most - nearly a thousand Elo end to end - because a disc flip a few moves ahead is
+invisible to a network and obvious to a search. Gomoku gains least, and its last rung is worth
+only 58 Elo: with eighty-one points to consider, tripling the budget from 200 to 600 barely
+deepens anything. Chess's middle rung was a 24-0 sweep, so it has a floor and no ceiling.
+
+That is the same lesson Phase 9.6 met from the other side - search was worth +541 Elo to the
+chess network, more than any training difference in the project - and it is the argument for
+spending the next effort on the search rather than the network.
 
 ### Chess, self-play stage 1 — first attempt: a collapse, diagnosed
 

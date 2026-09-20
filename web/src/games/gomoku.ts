@@ -33,6 +33,12 @@ export class Gomoku implements Game<GomokuState> {
   readonly actionSize = SQUARES;
   readonly boardShape = [SIZE, SIZE] as const;
   readonly inputPlanes = 2;
+  /** null plays the real game; 1 restores the rules the network trained under. */
+  readonly neighbourhood: number | null;
+
+  constructor(neighbourhood: number | null = null) {
+    this.neighbourhood = neighbourhood;
+  }
 
   initialState(): GomokuState {
     return { board: new Int8Array(SQUARES), lastMove: null, ply: 0 };
@@ -44,9 +50,19 @@ export class Gomoku implements Game<GomokuState> {
   }
 
   legalActions(state: GomokuState): boolean[] {
-    // Empty points near the existing stones. Free-style otherwise: none of the
-    // opening handicaps some rulesets add to curb the first player's advantage.
+    // Every empty point, or only those near a stone when restricted. Free-style
+    // either way: none of the opening handicaps some rulesets add to curb the
+    // first player's advantage. See the Python rules for why the restriction
+    // exists and why play does not need it.
     const legal = new Array<boolean>(SQUARES).fill(false);
+    const reach = this.neighbourhood;
+
+    if (reach === null) {
+      for (let square = 0; square < SQUARES; square++) {
+        legal[square] = state.board[square] === 0;
+      }
+      return legal;
+    }
 
     let occupied = false;
     for (const value of state.board) {
@@ -66,8 +82,8 @@ export class Gomoku implements Game<GomokuState> {
       if (state.board[square] === 0) continue;
       const row = Math.floor(square / SIZE);
       const col = square % SIZE;
-      for (let r = row - NEIGHBOURHOOD; r <= row + NEIGHBOURHOOD; r++) {
-        for (let c = col - NEIGHBOURHOOD; c <= col + NEIGHBOURHOOD; c++) {
+      for (let r = row - reach; r <= row + reach; r++) {
+        for (let c = col - reach; c <= col + reach; c++) {
           if (r < 0 || r >= SIZE || c < 0 || c >= SIZE) continue;
           if (state.board[r * SIZE + c] === 0) legal[r * SIZE + c] = true;
         }

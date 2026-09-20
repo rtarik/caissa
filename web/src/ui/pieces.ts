@@ -11,7 +11,8 @@
 
 const BASE = `<rect x="25" y="79" width="50" height="10" rx="4"/>`;
 
-const SHAPES: Record<string, string> = {
+/** Exported so the site's icons can borrow a piece rather than redraw one. */
+export const SHAPES: Record<string, string> = {
   p: `<circle cx="50" cy="29" r="12"/>
       <path d="M41 42 H59 L57 48 C57 60 65 70 70 79 H30 C35 70 43 60 43 48 Z"/>${BASE}`,
   r: `<path d="M29 16 H39 V23 H46 V16 H54 V23 H61 V16 H71 V33 H29 Z"/>
@@ -43,6 +44,6 @@ export const PIECE_NAMES: Record<string, string> = {
 
 /** A piece as inline SVG; `type` and `color` as chess.js names them. */
 export function pieceSvg(type: string, color: string): string {
-  return `<svg class="piece ${color === "w" ? "white" : "black"}" viewBox="0 0 100 100"
+  return `<svg class="chess-piece ${color === "w" ? "white" : "black"}" viewBox="0 0 100 100"
     aria-hidden="true">${SHAPES[type]}</svg>`;
 }

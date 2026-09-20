@@ -38,14 +38,20 @@ SEARCH_PLIES = {"dotsandboxes": (54, 58), "chess": (10, 160)}
 #: Simulation budgets for those searches, per game. Dots & Boxes gets larger ones
 #: for the same reason it gets endgames: a search only exercises the bonus-move
 #: sign rule once it reaches finished games, and eight simulations rarely do.
-SEARCH_SIMULATIONS = {"dotsandboxes": [60, 150, 400]}
+#: Gomoku needs a budget large enough to visit eighty-one children at all.
+SEARCH_SIMULATIONS = {"dotsandboxes": [60, 150, 400], "gomoku": [100, 200, 400]}
 
 #: Share of searches that must start where a move wins on the spot. The same
 #: problem Dots & Boxes solved with endgames: a random chess position almost never
 #: has a decided game within a knowledge-free search's reach, and the first chess
 #: vectors reached a result in 0 of 40 searches - every root value zero, which
 #: agrees with a port whatever it does with signs.
-SEARCH_WIN_IN_ONE = {"chess": 0.5}
+#: Gomoku joined this list when its rules stopped restricting play to the
+#: neighbourhood of the stones: free-style, a knowledge-free search over eighty
+#: empty points reaches a finished game in none of forty searches, exactly as the
+#: restriction's own docstring predicts. Starting where a stone wins on the spot
+#: puts the answers back.
+SEARCH_WIN_IN_ONE = {"chess": 0.5, "gomoku": 0.75}
 
 
 def wins_in_one(game, state) -> bool:

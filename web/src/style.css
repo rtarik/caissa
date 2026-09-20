@@ -12,6 +12,11 @@
   --engine: #e8b33a;
   --accent: #4f7cff;
   --radius: 14px;
+  /* Dots & Boxes ink: the drawn line, the dots, and an undrawn line's hint.
+     Defaults suit a dark board; the paper palette replaces all three. */
+  --drawn: rgb(233 235 241);
+  --point: rgb(233 235 241 / 0.9);
+  --line-hint: rgb(255 255 255 / 0.1);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 10px 30px rgb(0 0 0 / 0.07);
 }
 
@@ -46,71 +51,135 @@ body {
   padding: clamp(16px, 3vw, 36px) clamp(14px, 3vw, 28px) 56px;
 }
 
-/* ------------------------------------------------------------------ header */
+/* ---------------------------------------------------------------- masthead */
 
-header { margin-bottom: 18px; }
-h1 {
-  font-size: clamp(20px, 3vw, 26px);
-  font-weight: 660;
-  letter-spacing: -0.02em;
-  margin: 0;
-}
-.tagline { color: var(--muted); font-size: 14px; margin: 2px 0 0; }
-
-/* --------------------------------------------------------------- game menu */
-
-/* A horizontal strip that scrolls rather than wraps: six games wrap into an
-   untidy two rows on a phone, and a strip keeps the selected game in view. */
-.games {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 4px 0 10px;
-  margin-bottom: 6px;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-.games::-webkit-scrollbar { display: none; }
-
-.game-tab {
-  flex: none;
-  font: inherit;
-  font-weight: 550;
-  color: var(--muted);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 8px 15px;
-  cursor: pointer;
-  white-space: nowrap;
+.masthead {
   display: flex;
   align-items: center;
-  gap: 7px;
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: clamp(18px, 4vw, 34px);
 }
-/* Excludes the selected tab on purpose. Its background is already --ink, and
-   this rule out-specifies the selected style, so without the guard hovering
-   the current tab paints --ink text on an --ink pill and it vanishes. */
-.game-tab:hover:not(:disabled):not([aria-selected="true"]) {
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
   color: var(--ink);
-  border-color: var(--accent);
 }
-.game-tab[aria-selected="true"] {
-  color: var(--panel);
-  background: var(--ink);
-  border-color: var(--ink);
+/* A board in miniature: four squares, one of them the accent. */
+.mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background:
+    linear-gradient(var(--accent) 0 0) 0 0 / 50% 50% no-repeat,
+    linear-gradient(var(--ink) 0 0) 100% 100% / 50% 50% no-repeat,
+    color-mix(in srgb, var(--ink) 16%, transparent);
 }
-.game-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+.wordmark { font-size: 17px; font-weight: 640; letter-spacing: -0.02em; }
+.masthead-links { display: flex; gap: 14px; }
+
+/* Links that are there when wanted and quiet when not. */
+.quiet-link {
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+}
+.quiet-link:hover { color: var(--ink); border-bottom-color: color-mix(in srgb, var(--ink) 30%, transparent); }
+
+/* ----------------------------------------------------------------- gallery */
+
+.gallery-intro { margin-bottom: clamp(18px, 3vw, 28px); max-width: 46ch; }
+.gallery-intro h1 {
+  font-size: clamp(24px, 4.2vw, 34px);
+  font-weight: 660;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  margin: 0;
+}
+.gallery-intro p { color: var(--muted); margin: 8px 0 0; }
+
+.cards {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+}
+.card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 16px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  text-decoration: none;
+  color: inherit;
+  box-shadow: var(--shadow);
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+a.card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: 0 2px 4px rgb(0 0 0 / 0.06), 0 14px 34px rgb(0 0 0 / 0.1);
+}
+.card-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.card-icon .icon { width: 26px; height: 26px; }
+.card-text { display: grid; gap: 2px; min-width: 0; }
+.card-title { font-weight: 600; letter-spacing: -0.01em; display: flex; align-items: center; gap: 7px; }
+.card-blurb { color: var(--muted); font-size: 13px; }
+.card.unavailable { opacity: 0.55; }
 .soon {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--muted);
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 1px 6px;
 }
+
+/* -------------------------------------------------------------- play screen */
+
+.play-head { margin-bottom: 16px; }
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+  margin-bottom: 10px;
+}
+.back:hover { color: var(--ink); }
+.chevron { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.play-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: clamp(20px, 3vw, 26px);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.play-icon { display: inline-grid; place-items: center; width: 30px; height: 30px; }
+.play-icon .icon { width: 28px; height: 28px; }
+.play-rule { color: var(--muted); font-size: 13.5px; margin: 5px 0 0; max-width: 62ch; }
 
 /* ------------------------------------------------------------------ layout */
 
@@ -121,6 +190,67 @@ h1 {
 
 .stage { min-width: 0; }
 .side { display: grid; gap: 14px; }
+
+/* The technical half of the page, folded away until asked for. */
+.details { display: grid; gap: 10px; justify-items: start; }
+.details .panel { width: 100%; }
+.toggle.open { color: var(--ink); }
+
+.field-note {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin: -5px 0 0;
+}
+
+/* ------------------------------------------------------------ how it works */
+
+.prose { max-width: 62ch; }
+.prose h1 { font-size: clamp(22px, 3.4vw, 30px); font-weight: 660; letter-spacing: -0.02em; margin: 0 0 14px; }
+.prose h2 { font-size: 15px; font-weight: 620; margin: 26px 0 6px; }
+.prose p { margin: 0 0 12px; color: color-mix(in srgb, var(--ink) 82%, var(--muted)); }
+.prose strong { color: var(--ink); font-weight: 600; }
+.ladder { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 12px; }
+.ladder li { display: flex; align-items: flex-start; gap: 12px; color: color-mix(in srgb, var(--ink) 82%, var(--muted)); }
+.ladder-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.ladder-icon .icon { width: 20px; height: 20px; }
+.prose-links { margin-top: 26px; }
+
+/* The measured strength of each level, per game. */
+.levels {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.levels th, .levels td { text-align: right; padding: 7px 0 7px 12px; }
+.levels th:first-child, .levels td:first-child { text-align: left; padding-left: 0; }
+.levels thead th { color: var(--muted); font-weight: 550; border-bottom: 1px solid var(--line); }
+.levels tbody tr + tr td { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.levels td.gain { color: var(--ink); }
+
+/* ------------------------------------------------------------------- icons */
+
+.icon { width: 24px; height: 24px; display: block; }
+.icon .frame { fill: none; stroke: currentColor; stroke-width: 1.6; opacity: 0.45; }
+.icon .frame.gone { opacity: 0.16; stroke-dasharray: 2 2; }
+.icon .grid { fill: none; stroke: currentColor; stroke-width: 1.4; opacity: 0.4; stroke-linecap: round; }
+.icon .hole { fill: currentColor; opacity: 0.16; }
+.icon .dot { fill: currentColor; opacity: 0.5; }
+.icon .one { fill: var(--icon-one, var(--accent)); }
+.icon .two { fill: var(--icon-two, currentColor); }
+/* The knight is drawn on the board's 100-unit grid, filled like a piece. */
+.icon.knight .filled { fill: var(--icon-one, var(--accent)); stroke: none; }
+.icon .filled { fill: var(--icon-one, var(--accent)); }
 
 /* ------------------------------------------------------------------- board */
 
@@ -247,7 +377,15 @@ h1 {
   font-weight: 560;
 }
 .status .spacer { margin-left: auto; }
-.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+  /* Reversi's and Gomoku's first player is black, which on this page would be a
+     hole rather than a dot. The ring is what makes it a token either way. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 35%, transparent);
+}
 .dot.you { background: var(--you); }
 .dot.engine { background: var(--engine); }
 .muted { color: var(--muted); font-weight: 450; }
@@ -374,7 +512,6 @@ footer {
    narrow tracks and boxes wide ones, so the grid itself draws the board. */
 .board.lattice {
   --track: clamp(10px, 2.6vw, 14px);
-  --drawn: rgb(233 235 241);
   grid-template-columns: repeat(5, var(--track) 1fr) var(--track);
   grid-template-rows: repeat(5, var(--track) 1fr) var(--track);
   aspect-ratio: 1;
@@ -385,7 +522,7 @@ footer {
   position: relative;
   z-index: 2;
   border-radius: 50%;
-  background: rgb(233 235 241 / 0.9);
+  background: var(--point);
 }
 .lattice .box {
   margin: 5px;
@@ -411,7 +548,7 @@ footer {
   content: "";
   position: absolute;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.1);
+  background: var(--line-hint);
   transition: background 140ms ease;
 }
 .lattice .line.h::after { left: 0; right: 0; top: 50%; height: 4px; transform: translateY(-50%); }
@@ -486,7 +623,10 @@ footer {
 .board.chess .sq.target::after { width: 28%; height: 28%; background: rgb(22 26 35 / 0.3); }
 .board.chess .sq.capture::after { inset: 5%; border: 5px solid rgb(22 26 35 / 0.3); }
 
-.piece {
+/* The drawn chess pieces. Named for chess alone: `piece` on its own collided
+   with Isola's cell class, and this rule's `pointer-events: none` made the one
+   square Isola needs clickable - the one the piece just left - unclickable. */
+.chess-piece {
   position: relative;
   z-index: 1;
   width: 86%;
@@ -499,10 +639,10 @@ footer {
   pointer-events: none;
   filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.28));
 }
-.piece.white { --fill: var(--piece-white); }
-.piece.black { --fill: var(--piece-black); }
-.piece .detail { fill: none; }
-.piece.black .detail { stroke: var(--piece-white); opacity: 0.55; }
+.chess-piece.white { --fill: var(--piece-white); }
+.chess-piece.black { --fill: var(--piece-black); }
+.chess-piece .detail { fill: none; }
+.chess-piece.black .detail { stroke: var(--piece-white); opacity: 0.55; }
 
 .board.chess .coord {
   position: absolute;
@@ -577,3 +717,95 @@ footer a { color: inherit; margin-left: 6px; }
 /* An element's own display rule (.field is flex) would otherwise override the
    hidden attribute and show what the page means to hide. */
 [hidden] { display: none !important; }
+
+/* ------------------------------------------------- a palette for each game */
+
+/*
+ * Every game used to wear Four in a Row's clothes: red and yellow discs on a
+ * blue board, whatever it was. These give each one its own colours and let the
+ * board rules above stay as they are - they already read from these variables,
+ * so nothing below is a special case, only a different set of values.
+ *
+ * `--you` and `--engine` are the two sides, `--board` the surface they sit on,
+ * `--hole` an empty place on it, `--accent` the game's own colour for hints,
+ * highlights, icons and hovers.
+ */
+
+.card[data-game="connect4"], .ladder-icon[data-game="connect4"],
+body[data-game="connect4"] {
+  --accent: #3f6fd8;
+  --icon-one: #e0603a;
+  --icon-two: #f0bf4a;
+}
+body[data-game="connect4"] {
+  --you: #e0603a;
+  --engine: #f0bf4a;
+  --board: #2c4a92;
+  --hole: #16214a;
+}
+@media (prefers-color-scheme: light) {
+  body[data-game="connect4"] { --hole: #f6f6f4; }
+}
+
+.card[data-game="reversi"], .ladder-icon[data-game="reversi"],
+body[data-game="reversi"] {
+  --accent: #2f9f6d;
+  --icon-one: #1c2028;
+  --icon-two: #e8ece9;
+}
+body[data-game="reversi"] {
+  --you: #16191f;
+  --engine: #f2f5f2;
+  --board: #23694c;
+  --hole: #1c5a40;
+}
+
+.card[data-game="gomoku"], .ladder-icon[data-game="gomoku"],
+body[data-game="gomoku"] {
+  --accent: #b0763a;
+  --icon-one: #1c2028;
+  --icon-two: #e9ded0;
+}
+body[data-game="gomoku"] {
+  --you: #16191f;
+  --engine: #f4efe6;
+  --board: #c79a62;
+  --grid: #6d4a29;
+  --hole: #c79a62;
+}
+
+.card[data-game="isola"], .ladder-icon[data-game="isola"],
+body[data-game="isola"] {
+  --accent: #3fb0a3;
+  --icon-one: #3fb0a3;
+  --icon-two: #ef7a5c;
+}
+body[data-game="isola"] {
+  --you: #3fb0a3;
+  --engine: #ef7a5c;
+  --board: #333c50;
+  --hole: #47516a;
+}
+
+.card[data-game="dotsandboxes"], .ladder-icon[data-game="dotsandboxes"],
+body[data-game="dotsandboxes"] {
+  --accent: #6470dd;
+  --icon-one: #6470dd;
+  --icon-two: #e0a33c;
+}
+/* Pencil on paper, which is where this game actually lives. */
+body[data-game="dotsandboxes"] {
+  --you: #6470dd;
+  --engine: #e0a33c;
+  --board: #efe7d7;
+  --drawn: #3f3b33;
+  --point: #8a8172;
+  --line-hint: rgb(63 59 51 / 0.07);
+}
+
+.card[data-game="chess"], .ladder-icon[data-game="chess"],
+body[data-game="chess"] {
+  --accent: #8a7bd8;
+  --icon-one: #6d5fc4;
+  --icon-two: #cfc6f2;
+}

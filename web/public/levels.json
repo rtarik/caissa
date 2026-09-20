@@ -1,0 +1,214 @@
+{
+ "levels": [
+  {
+   "name": "Beginner",
+   "simulations": 0
+  },
+  {
+   "name": "Casual",
+   "simulations": 40
+  },
+  {
+   "name": "Strong",
+   "simulations": 200
+  },
+  {
+   "name": "Master",
+   "simulations": 600
+  }
+ ],
+ "games": {
+  "connect4": [
+   {
+    "level": "Casual",
+    "below": "Beginner",
+    "simulations": 40,
+    "belowSimulations": 0,
+    "score": 0.7333333333333333,
+    "elo": 175.733077532105,
+    "low": 96.92835626674554,
+    "high": 276.29666892346694
+   },
+   {
+    "level": "Strong",
+    "below": "Casual",
+    "simulations": 200,
+    "belowSimulations": 40,
+    "score": 0.7583333333333333,
+    "elo": 198.65735776885504,
+    "low": 125.20780405365753,
+    "high": 293.1468236224113
+   },
+   {
+    "level": "Master",
+    "below": "Strong",
+    "simulations": 600,
+    "belowSimulations": 200,
+    "score": 0.6583333333333333,
+    "elo": 113.93729382828235,
+    "low": 44.53166132061705,
+    "high": 193.5729972204029
+   }
+  ],
+  "reversi": [
+   {
+    "level": "Casual",
+    "below": "Beginner",
+    "simulations": 40,
+    "belowSimulations": 0,
+    "score": 0.8666666666666667,
+    "elo": 325.1653426571424,
+    "low": 219.79331372787044,
+    "high": 524.3864965007301
+   },
+   {
+    "level": "Strong",
+    "below": "Casual",
+    "simulations": 200,
+    "belowSimulations": 40,
+    "score": 0.8833333333333333,
+    "elo": 351.67113183461294,
+    "low": 250.0179956993195,
+    "high": 544.6894411844611
+   },
+   {
+    "level": "Master",
+    "below": "Strong",
+    "simulations": 600,
+    "belowSimulations": 200,
+    "score": 0.8416666666666667,
+    "elo": 290.2271091319255,
+    "low": 196.55298275598156,
+    "high": 442.0862026742049
+   }
+  ],
+  "gomoku": [
+   {
+    "level": "Casual",
+    "below": "Beginner",
+    "simulations": 40,
+    "belowSimulations": 0,
+    "score": 0.725,
+    "elo": 168.40212509629237,
+    "low": 104.69308065213463,
+    "high": 244.90795198952054
+   },
+   {
+    "level": "Strong",
+    "below": "Casual",
+    "simulations": 200,
+    "belowSimulations": 40,
+    "score": 0.7083333333333334,
+    "elo": 154.1403525456069,
+    "low": 95.14800894563999,
+    "high": 222.9833385207005
+   },
+   {
+    "level": "Master",
+    "below": "Strong",
+    "simulations": 600,
+    "belowSimulations": 200,
+    "score": 0.5833333333333334,
+    "elo": 58.451214271295235,
+    "low": 1.4474125411461594,
+    "high": 118.78619657849718
+   }
+  ],
+  "isola": [
+   {
+    "level": "Casual",
+    "below": "Beginner",
+    "simulations": 40,
+    "belowSimulations": 0,
+    "score": 0.7,
+    "elo": 147.19071411783776,
+    "low": 58.2603723598683,
+    "high": 259.8313697549398
+   },
+   {
+    "level": "Strong",
+    "below": "Casual",
+    "simulations": 200,
+    "belowSimulations": 40,
+    "score": 0.65,
+    "elo": 107.53812491703204,
+    "low": 19.679996516829384,
+    "high": 211.5853770856172
+   },
+   {
+    "level": "Master",
+    "below": "Strong",
+    "simulations": 600,
+    "belowSimulations": 200,
+    "score": 0.7833333333333333,
+    "elo": 223.26180225155224,
+    "low": 129.51660090334164,
+    "high": 360.47717869301744
+   }
+  ],
+  "dotsandboxes": [
+   {
+    "level": "Casual",
+    "below": "Beginner",
+    "simulations": 40,
+    "belowSimulations": 0,
+    "score": 0.8166666666666667,
+    "elo": 259.52135794811545,
+    "low": 162.29110774697452,
+    "high": 413.7010109450686
+   },
+   {
+    "level": "Strong",
+    "below": "Casual",
+    "simulations": 200,
+    "belowSimulations": 40,
+    "score": 0.7333333333333333,
+    "elo": 175.733077532105,
+    "low": 85.40668789410451,
+    "high": 296.1717990163372
+   },
+   {
+    "level": "Master",
+    "below": "Strong",
+    "simulations": 600,
+    "belowSimulations": 200,
+    "score": 0.6833333333333333,
+    "elo": 133.6121023067626,
+    "low": 45.165148660493934,
+    "high": 243.0391897013048
+   }
+  ],
+  "chess": [
+   {
+    "level": "Casual",
+    "below": "Beginner",
+    "simulations": 40,
+    "belowSimulations": 0,
+    "score": 0.9375,
+    "elo": 470.43650362227254,
+    "low": 330.10679752880736,
+    "high": 3599.9999856265263
+   },
+   {
+    "level": "Strong",
+    "below": "Casual",
+    "simulations": 200,
+    "belowSimulations": 40,
+    "score": 1.0,
+    "elo": 3599.9999856265263,
+    "low": 338.0392160057028,
+    "high": null
+   },
+   {
+    "level": "Master",
+    "below": "Strong",
+    "simulations": 600,
+    "belowSimulations": 200,
+    "score": 0.8958333333333334,
+    "elo": 373.79938049742714,
+    "low": 218.01446956267336,
+    "high": 3599.9999856265263
+   }
+  ]
+ }
+}

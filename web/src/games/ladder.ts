@@ -22,7 +22,10 @@ export interface LadderEntry {
   title: string;
   /** What the game is, in a few words. */
   blurb: string;
-  /** What it forces the framework to handle that earlier games did not. */
+  /** How to win, for someone who has never played it. Shown while playing. */
+  howToWin: string;
+  /** What it forces the framework to handle that earlier games did not.
+   *  Kept off the play screen: it is about the project, not about the game. */
   teaches: string;
   /** Names for the two seats, where the game has its own: chess's White and Black. */
   seats?: [string, string];
@@ -33,36 +36,42 @@ export const LADDER: LadderEntry[] = [
     key: "connect4",
     title: "Four in a Row",
     blurb: "Drop a disc; gravity does the rest.",
+    howToWin: "Get four of your discs in a line - across, up or diagonally.",
     teaches: "The baseline. Solved, so play can be graded against perfect.",
   },
   {
     key: "reversi",
     title: "Reversi",
     blurb: "Flank a line of discs to flip it.",
+    howToWin: "Trap a line of your opponent's discs between two of yours to flip them. Most discs at the end wins.",
     teaches: "Passing: having no legal move does not end the game.",
   },
   {
     key: "gomoku",
     title: "Gomoku",
     blurb: "Five in a row on an open board.",
+    howToWin: "Place a stone anywhere. Five in a row - across, up or diagonally - wins.",
     teaches: "A large action space, and very sparse policy targets.",
   },
   {
     key: "isola",
     title: "Isolation",
     blurb: "Move your piece, then destroy a square.",
+    howToWin: "Each turn, step one square and then destroy any empty square. Strand your opponent with nowhere to step.",
     teaches: "Compound actions — a rehearsal for chess's move encoding.",
   },
   {
     key: "dotsandboxes",
     title: "Dots & Boxes",
     blurb: "Draw lines; close a box to claim it — and move again.",
+    howToWin: "Draw one line per turn. Complete the fourth side of a box to claim it and go again. Most boxes wins.",
     teaches: "Turns that don't always pass, so the framework must be told whose move it is.",
   },
   {
     key: "chess",
     title: "Chess",
     blurb: "The main event.",
+    howToWin: "Checkmate the enemy king. All the usual rules, including castling, en passant and promotion.",
     teaches: "Everything at once, plus a bootstrap from human games.",
     seats: ["White", "Black"],
   },

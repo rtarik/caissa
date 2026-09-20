@@ -63,10 +63,30 @@ class GomokuState:
 
 
 class Gomoku:
+    """Free-style Gomoku, optionally with the training-time move restriction.
+
+    The restriction above is what made self-play *learn* (see
+    :data:`NEIGHBOURHOOD`), and it is what the shipped network was trained under.
+    It is not, however, a rule of the game, and a person playing in the browser
+    who cannot start a formation of their own has met a bug, not a ruleset.
+
+    The trained network settles this: asked for its priors with the restriction
+    lifted, it puts 0.0-0.5% of its probability on the points the restriction
+    used to hide. It learned the shape of good play, not the mask, so lifting the
+    mask costs the engine nothing and gives the person the real game back.
+
+    ``neighbourhood=1`` restores the training rules for anyone retraining from
+    scratch, where it is still needed: without it, search from a knowledge-free
+    network never reaches a terminal position and the loop never starts.
+    """
+
     name = "gomoku"
     action_size = SQUARES
     board_shape = (SIZE, SIZE)
     input_planes = 2
+
+    def __init__(self, neighbourhood: int | None = None):
+        self.neighbourhood = neighbourhood
 
     def initial_state(self) -> GomokuState:
         return GomokuState(
@@ -78,12 +98,15 @@ class Gomoku:
         return state.ply % 2
 
     def legal_actions(self, state: GomokuState) -> np.ndarray:
-        """Empty points near the existing stones - see :data:`NEIGHBOURHOOD`.
+        """Every empty point, or only those near a stone when restricted.
 
-        Free-style otherwise: no opening handicaps of the sort some rulesets add
+        Free-style either way: no opening handicaps of the sort some rulesets add
         to curb the first player's advantage.
         """
         empty = state.board == 0
+        if self.neighbourhood is None:
+            return empty.ravel()
+
         if not (state.board != 0).any():
             # An empty board has no neighbourhood. Opening anywhere is equivalent
             # by symmetry, so the centre point is the whole of the opening book.
@@ -97,8 +120,9 @@ class Gomoku:
         # on - measured at roughly twice the self-play cost by the midgame.
         occupied = state.board != 0
         near = np.zeros((SIZE, SIZE), dtype=bool)
-        for d_row in range(-NEIGHBOURHOOD, NEIGHBOURHOOD + 1):
-            for d_col in range(-NEIGHBOURHOOD, NEIGHBOURHOOD + 1):
+        reach = self.neighbourhood
+        for d_row in range(-reach, reach + 1):
+            for d_col in range(-reach, reach + 1):
                 rows = slice(max(0, -d_row), min(SIZE, SIZE - d_row))
                 cols = slice(max(0, -d_col), min(SIZE, SIZE - d_col))
                 near[rows, cols] |= occupied[
@@ -118,13 +142,16 @@ class Gomoku:
         row, col = divmod(action, SIZE)
         if state.board[row, col] != 0:
             return False
+        if self.neighbourhood is None:
+            return True
         if not (state.board != 0).any():
             return row == SIZE // 2 and col == SIZE // 2
+        reach = self.neighbourhood
         return bool(
             (
                 state.board[
-                    max(0, row - NEIGHBOURHOOD) : row + NEIGHBOURHOOD + 1,
-                    max(0, col - NEIGHBOURHOOD) : col + NEIGHBOURHOOD + 1,
+                    max(0, row - reach) : row + reach + 1,
+                    max(0, col - reach) : col + reach + 1,
                 ]
                 != 0
             ).any()

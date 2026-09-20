@@ -17,7 +17,14 @@ from caissa.games.gomoku import CONNECT, SIZE, SQUARES, Gomoku, GomokuState
 
 @pytest.fixture
 def game() -> Gomoku:
+    """The real game: any empty point, which is what a person gets to play."""
     return Gomoku()
+
+
+@pytest.fixture
+def restricted() -> Gomoku:
+    """The rules the network was trained under - see NEIGHBOURHOOD."""
+    return Gomoku(neighbourhood=1)
 
 
 def square(row: int, col: int) -> int:
@@ -58,22 +65,41 @@ def test_satisfies_game_protocol(game):
     assert isinstance(game, Game)
 
 
-def test_the_opening_is_the_centre_point(game):
-    """Every opening is equivalent by symmetry, so one of them is the book."""
+def test_the_whole_board_is_open(game):
+    """Free-style: the first stone may go anywhere, as in the game people play."""
     state = game.initial_state()
     assert state.board.shape == (SIZE, SIZE)
     assert not state.board.any()
     assert game.legal_actions(state).size == SQUARES
-    assert np.flatnonzero(game.legal_actions(state)).tolist() == [square(4, 4)]
+    assert game.legal_actions(state).sum() == SQUARES
     assert game.terminal_value(state) is None
 
 
-def test_play_is_restricted_to_the_neighbourhood_of_the_stones(game):
+def test_a_far_stone_is_welcome(game):
+    """Starting a second formation across the board is a real Gomoku idea.
+
+    The engine does not mind: trained under the restriction, it still puts
+    almost none of its prior on these points, so it plays as it always did.
+    """
+    state = play(game, square(4, 4))
+    assert game.legal_actions(state)[square(0, 0)]
+    assert game.apply(state, square(0, 0)).board[0, 0] != 0
+
+
+def test_the_restricted_opening_is_the_centre_point(restricted):
+    """Under the training rules, every opening is equivalent by symmetry."""
+    state = restricted.initial_state()
+    assert np.flatnonzero(restricted.legal_actions(state)).tolist() == [square(4, 4)]
+
+
+def test_play_is_restricted_to_the_neighbourhood_of_the_stones(restricted):
     """Deliberate domain knowledge - see NEIGHBOURHOOD in the module.
 
     Without it, a search over eighty near-identical empty points never reaches a
     terminal position, so neither search nor training has anything to learn from.
+    Kept available for retraining, and off for anybody actually playing.
     """
+    game = restricted
     state = play(game, square(4, 4))
     legal = np.flatnonzero(game.legal_actions(state))
 
@@ -86,8 +112,9 @@ def test_play_is_restricted_to_the_neighbourhood_of_the_stones(game):
         game.apply(state, square(0, 0))
 
 
-def test_the_restriction_relaxes_as_stones_spread(game):
+def test_the_restriction_relaxes_as_stones_spread(restricted):
     """It costs nothing by the midgame, which is where games are decided."""
+    game = restricted
     rng = np.random.default_rng(0)
     state = game.initial_state()
     counts = []

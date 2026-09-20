@@ -13,8 +13,13 @@ playable in the browser against networks learned entirely from self-play, with s
 in a Web Worker and nothing leaving the device. Reversi, Gomoku and Isolation each needed only
 a few lines of change to existing framework code. Dots & Boxes deliberately changed the
 framework itself: it is the first game where a player can move twice in a row, so whose turn
-it is now has to be stated by the game rather than counted. Chess is under way, in stages
-(Phase 9).
+it is now has to be stated by the game rather than counted.
+
+Chess (Phase 9) learns from human games first and is playable; its first self-play stage made
+the engine *weaker*, which turned out to be worth more than a stronger one would have been —
+the diagnosis is in PLAN.md under *Chess, self-play stage 1*. Phase 10 rebuilt the site around
+playing rather than around the project: a gallery of games, a palette and an icon for each, and
+the engine's internals behind one quiet toggle.
 See [PLAN.md](PLAN.md) for the full roadmap, decision log and progress checklist.
 
 ## Development
@@ -97,6 +102,14 @@ often resigning would have thrown a game away:
 
 ```bash
 .venv/bin/python scripts/resignations.py models/chess-gen0020.pt --games 60
+```
+
+`scripts/levels.py` measures what the site's four difficulty levels are worth in each game, by
+playing each level against the one below it. It writes `web/public/levels.json`, which the
+*How it works* page reads:
+
+```bash
+.venv/bin/python scripts/levels.py --games 60
 ```
 
 `scripts/gifts.py` checks the other end of the game: how often a checkpoint takes a box handed
