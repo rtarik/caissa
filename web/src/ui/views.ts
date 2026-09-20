@@ -15,6 +15,7 @@ import type { Game } from "../games/types";
 import { absoluteGrid, connect4LastMove, winningLine, type Grid } from "./board";
 import { chessView } from "./chessview";
 import { heatmap } from "./heatmap";
+import { tokenSvg } from "./pieces";
 
 export interface ViewContext<S = unknown> {
   game: Game<S>;
@@ -244,9 +245,10 @@ export const isolaView: View = {
       if (offered) classes.push("playable", stepping ? "reach" : "doomed");
 
       const row = Math.floor(i / I_SIZE);
+      const token = classes.includes("piece") ? tokenSvg() : "";
       return `<button class="${classes.join(" ")}" data-square="${i}"
         ${offered || (i === landing && !stepping) ? "" : "disabled"}
-        aria-label="Row ${row + 1}, column ${(i % I_SIZE) + 1}"></button>`;
+        aria-label="Row ${row + 1}, column ${(i % I_SIZE) + 1}">${token}</button>`;
     }).join("");
   },
 

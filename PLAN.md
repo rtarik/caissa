@@ -863,7 +863,19 @@ screen by default, and every game wearing Four in a Row's red-and-yellow-on-blue
       felt, Gomoku a wooden board with a drawn grid, Isolation teal and coral on slate, Dots &
       Boxes pencil on paper, chess its existing set.
 - [x] **Icons** drawn for each game, the chess one borrowed from the board's own knight rather
-      than drawn twice.
+      than drawn twice. Isolation's pieces are the board's pawn too: they were circles, which
+      say "counter" when the game is about a piece that walks.
+- [x] **Second pass, from the owner playing it.** The gallery's headline was larger than the
+      cards it introduced and said what the *How it works* page already says, so it is now a
+      small "Choose a game" and the copy moved. The footer sits at the bottom of the page and
+      carries a footer's worth of text; the line about nothing leaving the device belongs on
+      the page that explains the device. The selects are drawn rather than left to the platform
+      (still native controls - a hand-built dropdown is worse on a phone and worse with a
+      keyboard). Dots & Boxes turned out wrong on a dark page: cream paper was the brightest
+      thing on screen by a wide margin, so it is chalk on slate in the dark and keeps the paper
+      in the light. Isolation's teal-and-coral became brass and pewter, and the step hints are
+      a ring rather than a tint - mixing a brass piece colour into the floor turned the tiles
+      olive.
 - [x] **Difficulty renamed and measured.** Beginner / Casual / Strong / Master, and **Master is
       now the default** - it takes under a second a move in every game (898 ms for chess at 600
       simulations, 990 ms for Dots & Boxes), so there was nothing to protect anyone from.

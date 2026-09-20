@@ -240,10 +240,7 @@ app.innerHTML = `
 
   <main id="screens">
     <section class="screen" id="gallery">
-      <div class="gallery-intro">
-        <h1>Six games, one opponent that taught itself.</h1>
-        <p>Pick a game. Everything runs on your device — nothing is uploaded.</p>
-      </div>
+      <h1 class="section-title">Choose a game</h1>
       <div class="cards" id="cards"></div>
     </section>
 
@@ -298,7 +295,8 @@ app.innerHTML = `
   </main>
 
   <footer>
-    <span>Every move is computed on your device. Nothing is uploaded, and there is no server.</span>
+    <span>Caissa</span>
+    <a class="quiet-link" href="#/how-it-works">How it works</a>
     <a class="quiet-link" href="${asset("THIRD_PARTY_NOTICES.txt")}">Licences</a>
   </footer>
 `;
@@ -409,6 +407,9 @@ function renderAbout(): void {
   aboutEl.innerHTML = `
     <div class="prose">
       <h1>How it works</h1>
+      <p class="lede">
+        Six board games, and one opponent that taught itself to play all of them.
+      </p>
       <p>
         Each game here is played by a neural network that was given the rules and
         nothing else — no openings, no strategy, no games by people. It learned by

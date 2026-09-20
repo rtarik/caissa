@@ -53,8 +53,10 @@ describe("the stylesheet", () => {
       .map((block) => block.split("{")[0].trim());
 
     // Pseudo-elements and drawn overlays may ignore the mouse; a cell may not.
+    // `.token` is Isola's pawn, drawn *inside* the button it stands on - the
+    // click has to reach the button, so the drawing must not intercept it.
     for (const selector of deadly) {
-      expect(selector).toMatch(/::(after|before)|\.stone|\.chess-piece|\.coord/);
+      expect(selector).toMatch(/::(after|before)|\.stone|\.chess-piece|\.token|\.coord/);
     }
   });
 });

@@ -47,3 +47,16 @@ export function pieceSvg(type: string, color: string): string {
   return `<svg class="chess-piece ${color === "w" ? "white" : "black"}" viewBox="0 0 100 100"
     aria-hidden="true">${SHAPES[type]}</svg>`;
 }
+
+
+/**
+ * A piece drawn as a plain token, for the games that are not chess.
+ *
+ * Isolation's pieces were circles, which said "counter" when the game is about
+ * a piece that walks. It borrows the pawn rather than gaining a drawing of its
+ * own: one set of shapes, one thing to keep in step.
+ */
+export function tokenSvg(type: string = "p"): string {
+  return `<svg class="token" viewBox="8 0 84 94" aria-hidden="true"
+    focusable="false">${SHAPES[type] ?? SHAPES.p}</svg>`;
+}
