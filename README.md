@@ -131,6 +131,11 @@ Export a checkpoint, regenerate the cross-language test vectors, then run it:
 cd web && npm install && npm test && npm run dev
 ```
 
+The site's *How it works* page doubles as the project's introduction: the method in order, a
+card per game with its board and action count, what makes chess different, and the measured
+difficulty ladder. Its claims link to the files that implement them, and a test fails if one of
+those files moves.
+
 `web/` is a Vite + TypeScript app. The rules and the search exist in TypeScript as well as
 Python, and both are checked against vectors generated from Python — the TypeScript search
 must reproduce Python's visit counts exactly.

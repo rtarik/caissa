@@ -113,14 +113,17 @@ body {
 
 .cards {
   display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
+/* Tiles rather than rows: on a laptop a row of six chips reads as a file list,
+   and the games are the whole point of the page. Rows again on a phone, where a
+   tile per game would mean scrolling past two of them to see the rest. */
 .card {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 15px 16px;
+  gap: 16px;
+  padding: 18px;
   border-radius: var(--radius);
   background: var(--panel);
   border: 1px solid var(--line);
@@ -134,19 +137,33 @@ a.card:hover {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   box-shadow: 0 2px 4px rgb(0 0 0 / 0.06), 0 14px 34px rgb(0 0 0 / 0.1);
 }
+@media (min-width: 720px) {
+  .card { flex-direction: column; align-items: flex-start; gap: 18px; padding: 22px; }
+  .card-icon { width: 66px; height: 66px; border-radius: 16px; }
+  .card-icon .icon { width: 38px; height: 38px; }
+  .card-title { font-size: 17.5px; }
+}
+
 .card-icon {
   flex: none;
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
+  width: 58px;
+  height: 58px;
+  border-radius: 14px;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
-.card-icon .icon { width: 26px; height: 26px; }
-.card-text { display: grid; gap: 2px; min-width: 0; }
-.card-title { font-weight: 600; letter-spacing: -0.01em; display: flex; align-items: center; gap: 7px; }
-.card-blurb { color: var(--muted); font-size: 13px; }
+.card-icon .icon { width: 34px; height: 34px; }
+.card-text { display: grid; gap: 3px; min-width: 0; }
+.card-title {
+  font-size: 16.5px;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-blurb { color: var(--muted); font-size: 13.5px; line-height: 1.45; }
 .card.unavailable { opacity: 0.55; }
 .soon {
   font-size: 10px;
@@ -228,19 +245,57 @@ a.card:hover {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .ladder-icon .icon { width: 20px; height: 20px; }
-.prose-links { margin-top: 26px; }
+.prose-links { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 18px; }
+
+/* A link to the file that does the thing being described. Underlined rather
+   than coloured: there are a lot of them, and a page of blue is unreadable. */
+.code-link {
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  white-space: nowrap;
+}
+.code-link:hover { border-bottom-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+.steps { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 10px; }
+.steps li { color: color-mix(in srgb, var(--ink) 82%, var(--muted)); padding-left: 3px; }
+
+.game-notes { display: grid; gap: 14px; margin: 16px 0 6px; }
+.game-note {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+.game-note h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 620;
+  margin: 0 0 8px;
+}
+.game-note p { font-size: 13.5px; margin: 0 0 10px; }
+.facts { display: grid; gap: 6px 22px; margin: 0; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.facts div { display: grid; gap: 1px; }
+.facts dt { color: var(--muted); font-size: 11.5px; letter-spacing: 0.02em; }
+.facts dd { margin: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+.rules-link { margin: 12px 0 0 !important; font-size: 12.5px; color: var(--muted); }
 
 /* The measured strength of each level, per game. */
 .levels {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 10px;
+  margin: 10px 0 18px;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .levels th, .levels td { text-align: right; padding: 7px 0 7px 12px; }
 .levels th:first-child, .levels td:first-child { text-align: left; padding-left: 0; }
-.levels thead th { color: var(--muted); font-weight: 550; border-bottom: 1px solid var(--line); }
+.levels thead th { color: var(--muted); font-weight: 550; border-bottom: 1px solid var(--line); padding-bottom: 9px; }
+.levels tbody tr:first-child td { padding-top: 10px; }
 .levels tbody tr + tr td { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
 .levels td.gain { color: var(--ink); }
 

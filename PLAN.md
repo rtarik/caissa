@@ -876,6 +876,19 @@ screen by default, and every game wearing Four in a Row's red-and-yellow-on-blue
       in the light. Isolation's teal-and-coral became brass and pewter, and the step hints are
       a ring rather than a tint - mixing a brass piece colour into the floor turned the tiles
       olive.
+- [x] **Third pass.** Cards became tiles on anything wider than a phone: six chips in a row
+      read as a file listing on a laptop, and the games are what the page is for (rows are
+      kept on a phone, where tiles would mean scrolling past two games to see the rest).
+      Dashes came out of the copy people read. The repository link was wrong, which is now a
+      test rather than a thing to remember.
+- [x] **The *How it works* page became the guide.** It walks the method in order: what the two
+      halves are and how they disagree, the self-play loop step by step, how it can fail
+      (Phase 9.6 in a paragraph), then a card per game with its board, its action count, how it
+      learned and a link to its rules. A section on what makes chess different - 530,000
+      Lichess games where both players were 2200+, because learning chess from nothing is a
+      compute budget rather than a method - and on Gomoku's training restriction being a
+      training aid rather than a rule. Every claim links to the file that implements it, and
+      `web/test/site.test.ts` fails if one of those files is renamed or moved.
 - [x] **Difficulty renamed and measured.** Beginner / Casual / Strong / Master, and **Master is
       now the default** - it takes under a second a move in every game (898 ms for chess at 600
       simulations, 990 ms for Dots & Boxes), so there was nothing to protect anyone from.

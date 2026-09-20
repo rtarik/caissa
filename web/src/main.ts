@@ -403,7 +403,18 @@ function renderCards(): void {
   }).join("");
 }
 
+const REPO = "https://github.com/rtarik/caissa";
+
+/** A link to a file in the repository, so a claim can be checked. */
+function code(path: string, label = path): string {
+  return `<a class="code-link" href="${REPO}/blob/main/${path}">${label}</a>`;
+}
+
 function renderAbout(): void {
+  const generations = new Map(
+    [...networks.entries()].map(([key, list]) => [key, list[0]?.generation ?? null]),
+  );
+
   aboutEl.innerHTML = `
     <div class="prose">
       <h1>How it works</h1>
@@ -411,54 +422,170 @@ function renderAbout(): void {
         Six board games, and one opponent that taught itself to play all of them.
       </p>
       <p>
-        Each game here is played by a neural network that was given the rules and
-        nothing else — no openings, no strategy, no games by people. It learned by
-        playing itself, millions of times, keeping what worked.
+        Nothing here was told how to play. Each game's engine was given the rules,
+        a way to see the board, and no advice at all: no openings, no tactics, no
+        games by people. It got good by playing itself and keeping what worked.
+        This page is a walk through how that is done, and where each game made it
+        harder.
       </p>
-      <h2>Two halves</h2>
+
+      <h2>1. What you are playing against</h2>
       <p>
-        The <strong>network</strong> looks at a position and answers two questions
-        at once: which moves look worth considering, and who is winning. It is
-        quick and it is often wrong.
+        Two pieces, and it helps to keep them apart, because they fail in
+        different ways.
       </p>
       <p>
-        The <strong>search</strong> takes those hunches and checks them, playing
-        out the most promising lines a few hundred times before choosing. The
-        difficulty setting is simply how many of those lines it is allowed —
-        from none at all to six hundred.
+        The <strong>network</strong> is a small neural net (a few hundred thousand
+        numbers, ${code("src/caissa/network.py", "network.py")}). Shown a position,
+        it answers two questions at once: which moves look worth considering, and
+        who is winning. It answers instantly, and it is often wrong. Playing at
+        <em>Beginner</em> is playing the network alone, with no thinking on top.
       </p>
-      <h2>Learning with no teacher</h2>
       <p>
-        Training is a loop. The agent plays itself; the search finds moves better
-        than the network's first instinct; the network is trained to expect what
-        the search found, and to predict how the game ended. A slightly better
-        network makes a slightly better search, which produces slightly better
-        training data, and round it goes. This is AlphaZero's recipe, run on one
-        laptop rather than a data centre.
+        The <strong>search</strong> is what turns those hunches into a move
+        (${code("src/caissa/mcts.py", "mcts.py")}). It plays out promising lines
+        one at a time, a few hundred times, keeping a count of how often each move
+        was explored and how those lines turned out. Moves the network likes get
+        looked at first; moves that keep working get looked at more. When the
+        budget runs out, the move that was explored most is played.
       </p>
-      <h2>Why these six games</h2>
-      <p>Each one was added because it breaks something the previous ones let slide.</p>
-      <ul class="ladder">
-        ${LADDER.map((item) => `<li>
-          <span class="ladder-icon" data-game="${item.key}">${iconFor(item.key)}</span>
-          <span><strong>${item.title}</strong> — ${item.teaches}</span>
-        </li>`).join("")}
-      </ul>
-      <h2>How strong are the four levels?</h2>
       <p>
-        Every level plays the one below it, sixty games each, same network on
-        both sides. The numbers are Elo — the gap a rating system would put
-        between them — and they only compare levels <em>within</em> one game.
+        The difficulty setting is that budget, and nothing else. It is worth a lot:
+        in Reversi, going from 50 lines to 200 is worth about as much as a large
+        jump in playing strength, while the network itself never changes.
+      </p>
+
+      <h2>2. How it learned</h2>
+      <p>A loop, repeated until the network stops improving.</p>
+      <ol class="steps">
+        <li>
+          <strong>Play itself.</strong> A few hundred games, both sides the same
+          network, with the search running on every move
+          (${code("src/caissa/selfplay.py", "selfplay.py")}). Early moves are
+          picked with deliberate randomness, or every game would be the same game.
+        </li>
+        <li>
+          <strong>Write down two answers per position.</strong> What the search
+          explored, and how the game actually ended for whoever was to move there.
+        </li>
+        <li>
+          <strong>Train on them.</strong> The network is adjusted to expect what
+          the search found, and to predict how games end
+          (${code("src/caissa/train.py", "train.py")}).
+        </li>
+      </ol>
+      <p>
+        The whole thing rests on one idea: <strong>searching is better than
+        guessing</strong>. The search, using the network, finds better moves than
+        the network alone would play, so training the network to imitate the search
+        makes it better, which makes the next search better, and round it goes.
+        AlphaZero's recipe, on one laptop instead of a data centre.
+      </p>
+      <p>
+        It can also fail, and it did here. If the network's sense of who is winning
+        becomes confident faster than it becomes accurate, the search starts
+        believing it over its own findings, and the loop teaches the network to
+        imitate a worse teacher every round. Every number inside training keeps
+        improving while the agent gets weaker, which is why strength is measured
+        from outside, by playing old versions against new ones
+        (${code("src/caissa/arena.py", "arena.py")}).
+      </p>
+
+      <h2>3. The six games, and what each one changed</h2>
+      <p>
+        The engine is the same for all of them: it never mentions a game by name,
+        and everything it needs sits behind one interface
+        (${code("src/caissa/games/base.py", "games/base.py")}). Each game was added
+        because it breaks an assumption the previous ones let stand.
+      </p>
+      <div class="game-notes">
+        ${LADDER.map((item) => `<section class="game-note">
+          <h3>
+            <span class="ladder-icon" data-game="${item.key}">${iconFor(item.key)}</span>
+            ${item.title}
+          </h3>
+          <p>${item.detail}</p>
+          <dl class="facts">
+            <div><dt>Board</dt><dd>${item.board}</dd></div>
+            <div><dt>Moves to choose from</dt><dd>${item.moves}</dd></div>
+            <div><dt>How it learned</dt><dd>${item.learned}</dd></div>
+            ${generations.get(item.key)
+              ? `<div><dt>Version playing here</dt><dd>generation ${generations.get(item.key)}</dd></div>`
+              : ""}
+          </dl>
+          <p class="rules-link">Rules: ${code(`src/caissa/games/${item.key}.py`, `${item.key}.py`)}</p>
+        </section>`).join("")}
+      </div>
+
+      <h2>4. Chess is the exception</h2>
+      <p>
+        Every other game here started from nothing. Chess did not, and the reason
+        is arithmetic: AlphaZero learned chess from scratch using roughly a million
+        times the computing power available here. Starting from zero was not a
+        method choice, it was a budget.
+      </p>
+      <p>
+        So chess began by copying people. Lichess publishes every game played on
+        the site under a public licence, about 14 GB for a single month. January
+        2020 was downloaded and filtered down to the games where
+        <strong>both players were rated 2200 or above</strong>, which is a strong
+        club player: 530,000 games, 39 million positions
+        (${code("scripts/lichess.py", "lichess.py")}). The network was then trained
+        to predict the move the human played and how the game ended
+        (${code("scripts/imitate.py", "imitate.py")}), and it reaches about half of
+        their moves exactly.
+      </p>
+      <p>
+        That gives a chess engine with a real opening repertoire and no experience
+        of its own. Self-play from there is unfinished work: the first attempt made
+        it measurably weaker, for reasons that took a day to pin down and are
+        written up in ${code("PLAN.md")} under <em>Chess, self-play stage 1</em>.
+        The chess opponent you can play is the imitation network, so it plays a bit
+        like the people it learned from.
+      </p>
+      <p>
+        One smaller difference worth naming: <strong>Gomoku</strong> was trained
+        with a restriction, where stones could only be played next to existing
+        ones. Without it, a search that knows nothing never stumbles into a
+        finished game and there is nothing to learn from. That restriction is a
+        training aid, not a rule, so it is switched off for the game you play, and
+        the network turned out not to need it.
+      </p>
+
+      <h2>5. How strong are the four levels?</h2>
+      <p>
+        Every level plays the one below it, sixty games each, same network on both
+        sides (${code("scripts/levels.py", "levels.py")}). The numbers are Elo, the
+        gap a rating system would put between them, and they only compare levels
+        <em>within</em> one game.
       </p>
       <div id="levels-table"><p class="teaches">Measuring…</p></div>
-
-      <h2>On your device</h2>
       <p>
-        The networks are a few hundred kilobytes each and run in your browser.
-        Nothing you play is sent anywhere, and there is no server to send it to.
+        The spread is the interesting part. Search is worth far more in some games
+        than others: a Reversi flip three moves ahead is invisible to the network
+        and obvious to a search, while in Gomoku, with eighty-one places to put a
+        stone, tripling the budget barely deepens anything.
+      </p>
+
+      <h2>6. On your device</h2>
+      <p>
+        Every move is computed on your device. Nothing you play is uploaded, and
+        there is no server to upload it to. Each network is a few hundred kilobytes
+        and runs in a background thread in your browser
+        (${code("web/src/engine/worker.ts", "worker.ts")}); the rules exist twice,
+        once in Python for training and once in TypeScript for playing, and both
+        are checked against the same recorded positions so they cannot drift apart
+        (${code("scripts/testvectors.py", "testvectors.py")}).
+      </p>
+
+      <h2>The code</h2>
+      <p>
+        The whole project is on GitHub, including a long write-up of what was
+        tried, what was measured and what went wrong.
       </p>
       <p class="prose-links">
-        <a class="quiet-link" href="https://github.com/tarikrahmatallah/caissa">Source and write-up</a>
+        <a class="quiet-link" href="${REPO}">github.com/rtarik/caissa</a>
+        <a class="quiet-link" href="${REPO}/blob/main/PLAN.md">The plan and decision log</a>
       </p>
     </div>
   `;

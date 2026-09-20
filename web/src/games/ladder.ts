@@ -27,6 +27,15 @@ export interface LadderEntry {
   /** What it forces the framework to handle that earlier games did not.
    *  Kept off the play screen: it is about the project, not about the game. */
   teaches: string;
+  /** The same thing at length, for the page that explains the project. */
+  detail: string;
+  /** Board size, in the terms a player would use. */
+  board: string;
+  /** How many moves the engine picks between, which is what makes a game hard
+   *  for a search rather than for a person. */
+  moves: string;
+  /** Where its skill came from. Chess is the only one that started with ours. */
+  learned: string;
   /** Names for the two seats, where the game has its own: chess's White and Black. */
   seats?: [string, string];
 }
@@ -36,8 +45,13 @@ export const LADDER: LadderEntry[] = [
     key: "connect4",
     title: "Four in a Row",
     blurb: "Drop a disc; gravity does the rest.",
-    howToWin: "Get four of your discs in a line - across, up or diagonally.",
+    howToWin: "Get four of your discs in a line: across, up or diagonally.",
     teaches: "The baseline. Solved, so play can be graded against perfect.",
+    detail:
+      "The simplest game that still needs real lookahead, and the only one here that has been solved outright, so its play can be graded against perfect rather than against itself.",
+    board: "6 × 7",
+    moves: "7",
+    learned: "Self-play only, 40 rounds",
   },
   {
     key: "reversi",
@@ -45,34 +59,59 @@ export const LADDER: LadderEntry[] = [
     blurb: "Flank a line of discs to flip it.",
     howToWin: "Trap a line of your opponent's discs between two of yours to flip them. Most discs at the end wins.",
     teaches: "Passing: having no legal move does not end the game.",
+    detail:
+      "The first game where a player can be left with no legal move at all. Turns had to stop being something the framework could count and start being something the game states, which is a change that reaches into the search, the training labels and the board.",
+    board: "8 × 8",
+    moves: "up to 65",
+    learned: "Self-play only, 30 rounds",
   },
   {
     key: "gomoku",
     title: "Gomoku",
     blurb: "Five in a row on an open board.",
-    howToWin: "Place a stone anywhere. Five in a row - across, up or diagonally - wins.",
+    howToWin: "Place a stone anywhere. Five in a row wins, across, up or diagonally.",
     teaches: "A large action space, and very sparse policy targets.",
+    detail:
+      "Eighty-one places to put a stone, against seven columns in Four in a Row. The policy the network has to predict becomes almost entirely zeros, and the same search budget spread over ten times the moves buys far less certainty.",
+    board: "9 × 9",
+    moves: "81",
+    learned: "Self-play only, 40 rounds",
   },
   {
     key: "isola",
     title: "Isolation",
     blurb: "Move your piece, then destroy a square.",
     howToWin: "Each turn, step one square and then destroy any empty square. Strand your opponent with nowhere to step.",
-    teaches: "Compound actions — a rehearsal for chess's move encoding.",
+    teaches: "Compound actions, a rehearsal for chess's move encoding.",
+    detail:
+      "A turn here is two decisions: where to step, and which square to remove. They are encoded as one number rather than two half-moves, which is the same trick chess needs for its 4,672 moves, rehearsed on a smaller board.",
+    board: "7 × 7",
+    moves: "392",
+    learned: "Self-play only, 30 rounds",
   },
   {
     key: "dotsandboxes",
     title: "Dots & Boxes",
-    blurb: "Draw lines; close a box to claim it — and move again.",
+    blurb: "Draw lines; close a box to claim it, then move again.",
     howToWin: "Draw one line per turn. Complete the fourth side of a box to claim it and go again. Most boxes wins.",
     teaches: "Turns that don't always pass, so the framework must be told whose move it is.",
+    detail:
+      "Closing a box earns another turn, so the players do not alternate. Every place in the project that assumed they did had to be found and fixed, including the sign of the training labels, which is the kind of bug that trains happily in the wrong direction and never raises an error.",
+    board: "5 × 5 boxes",
+    moves: "60",
+    learned: "Self-play only, 55 rounds",
   },
   {
     key: "chess",
     title: "Chess",
-    blurb: "The main event.",
+    blurb: "The full game, pieces and all.",
     howToWin: "Checkmate the enemy king. All the usual rules, including castling, en passant and promotion.",
     teaches: "Everything at once, plus a bootstrap from human games.",
+    detail:
+      "Everything at once, and the only game here that did not start from nothing. Learning chess from scratch is a question of compute rather than method, and the compute is not available on one laptop, so this one began by copying people.",
+    board: "8 × 8",
+    moves: "4,672",
+    learned: "530,000 human games, then self-play",
     seats: ["White", "Black"],
   },
 ];

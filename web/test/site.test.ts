@@ -8,6 +8,7 @@
  * list whose order or default drifts, and a game added to the ladder without the
  * icon or the description the gallery draws.
  */
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { LADDER } from "../src/games/ladder";
 import { DEFAULT_LEVEL, LEVELS } from "../src/levels";
@@ -86,5 +87,26 @@ describe("the gallery's games", () => {
       // The play screen is for playing: the framework talk belongs elsewhere.
       expect(item.howToWin.toLowerCase()).not.toMatch(/network|search|policy|encoding/);
     }
+  });
+});
+
+describe("the guide's links into the code", () => {
+  it("points at files that exist", () => {
+    // A guide that explains the search and then links to a file that was
+    // renamed is worse than one that links to nothing: it reads as authoritative
+    // and 404s. These are checked against the repository rather than trusted.
+    const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+    const paths = [...source.matchAll(/\bcode\("([^"]+)"/g)].map((m) => m[1]);
+
+    expect(paths.length).toBeGreaterThan(8);
+    for (const path of paths) {
+      const onDisk = new URL(`../../${path}`, import.meta.url);
+      expect(existsSync(onDisk), `linked from the guide but missing: ${path}`).toBe(true);
+    }
+  });
+
+  it("sends people to the right GitHub account", () => {
+    const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
+    expect(source).toContain("https://github.com/rtarik/caissa");
   });
 });
