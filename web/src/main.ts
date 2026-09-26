@@ -17,6 +17,8 @@ import { LADDER, type LadderEntry } from "./games/ladder";
 import type { Game } from "./games/types";
 import { VIEWS, type View } from "./ui/views";
 import { iconFor } from "./ui/icons";
+import { moveLabel } from "./ui/notation";
+import { rowsOf, undoTarget, type Ply } from "./moves";
 import { playerCardHtml, tokenFor, type PlayerCard } from "./ui/players";
 import { approximately, readSettings, resolveSeat, sheetHtml, type Rating, type Settings } from "./ui/sheet";
 import type { FromEngine, ToEngine } from "./engine/protocol";
@@ -55,7 +57,14 @@ let showDetails = false;
 let settings: Settings = { level: DEFAULT_LEVEL, seat: "first", network: null };
 let sheetOpen = false;
 let sheetCancellable = false;
-/** Measured ratings per level, for the games that have them. */
+/**
+ * How far into the game the board is showing, while stepping back through it;
+ * null shows the game as it stands. Looking back never changes the game.
+ */
+let viewing: number | null = null;
+/** The number of the latest engine request; answers to any other are stale. */
+let requestId = 0;
+/** Measured ratings, per network file and then per level, where there are any. */
 let ratings = new Map<string, Map<string, Rating>>();
 try {
   showDetails = localStorage.getItem(DETAILS_KEY) === "1";
@@ -83,17 +92,28 @@ worker.onmessage = (event: MessageEvent<FromEngine>) => {
     render();
     advance();
   } else if (message.kind === "move") {
+    // An answer to a request since superseded - by an undo or a new game - is
+    // for a position that no longer exists. Playing it would put a move from
+    // one game into another.
+    if (message.id !== requestId) return;
     thinking = false;
     report = message;
     moves = [...moves, message.action];
     render();
     advance();
   } else {
+    if (message.id !== undefined && message.id !== requestId) return;
     thinking = false;
     error = message.message;
     render();
   }
 };
+
+/** Forget whatever the engine is working on: its answer will be ignored. */
+function cancelSearch(): void {
+  requestId += 1;
+  thinking = false;
+}
 
 function loadEngine(): void {
   ready = false;
@@ -111,20 +131,39 @@ function loadEngine(): void {
 // ---------------------------------------------------------------- game state
 
 /**
- * The position, replayed from the moves - once per move list rather than on
- * every call, since a render asks several times and a chess position costs far
- * more to rebuild than a Four in a Row one. `moves` is replaced, never mutated,
- * so the array itself says whether the replay is current.
+ * Every position along the game, and each move's name, kept in step with the
+ * move list.
+ *
+ * Browsing needs any position in the game, and undo cuts the game short, so
+ * this keeps them all rather than only the last. It is brought up to date by
+ * finding how much of the old game the new move list shares and replaying only
+ * the rest: a move made adds one position, an undo only truncates, and a chess
+ * game is never replayed from the start just to step back one move. `moves` is
+ * replaced rather than changed, so the array itself says whether this is current.
  */
-let replayed: { moves: number[]; state: unknown } | null = null;
-const state = () => {
-  if (replayed?.moves !== moves) {
-    let current = game.initialState();
-    for (const move of moves) current = game.apply(current, move);
-    replayed = { moves, state: current };
-  }
-  return replayed.state;
+let history: { game: Game<unknown>; moves: number[]; states: unknown[]; labels: string[] } = {
+  game, moves: [], states: [game.initialState()], labels: [],
 };
+
+function positions(): typeof history {
+  if (history.moves === moves && history.game === game) return history;
+  const old = history.game === game ? history.moves : [];
+  let common = 0;
+  while (common < old.length && common < moves.length && old[common] === moves[common]) common++;
+  const states = history.game === game ? history.states.slice(0, common + 1) : [game.initialState()];
+  const labels = history.game === game ? history.labels.slice(0, common) : [];
+  for (let index = common; index < moves.length; index++) {
+    labels.push(moveLabel(entry.key, states[index], moves[index]));
+    states.push(game.apply(states[index], moves[index]));
+  }
+  history = { game, moves, states, labels };
+  return history;
+}
+
+/** The game as it stands. */
+const state = () => positions().states[moves.length];
+/** How many moves in the board is showing: all of them, unless stepping back. */
+const shownPly = () => viewing ?? moves.length;
 
 /** The seat the human plays: 0 moves first. */
 const humanSeat = () => (humanFirst ? 0 : 1);
@@ -151,9 +190,8 @@ function mustPass(): boolean {
 /** Whether the last move kept the turn - a closed box, in Dots & Boxes. */
 function lastMoveKeptTurn(): boolean {
   if (moves.length === 0) return false;
-  let before = game.initialState();
-  for (const move of moves.slice(0, -1)) before = game.apply(before, move);
-  return game.toPlay(before) === game.toPlay(state());
+  const { states } = positions();
+  return game.toPlay(states[moves.length - 1]) === game.toPlay(states[moves.length]);
 }
 
 function play(action: number): void {
@@ -189,17 +227,47 @@ function advance(): void {
   }
 
   thinking = true;
+  requestId += 1;
   render();
-  worker.postMessage({ kind: "move", moves, simulations } satisfies ToEngine);
+  worker.postMessage({ kind: "move", id: requestId, moves, simulations } satisfies ToEngine);
 }
 
 function reset(): void {
+  cancelSearch();
   moves = [];
+  viewing = null;
   report = null;
   pending = null;
-  thinking = false;
   render();
   advance();
+}
+
+/** Take back the player's last move, and the engine's reply with it. */
+function undo(): void {
+  const target = undoPoint();
+  if (target === null) return;
+  cancelSearch();
+  moves = moves.slice(0, target);
+  viewing = null;
+  report = null;
+  pending = null;
+  render();
+  advance();
+}
+
+function undoPoint(): number | null {
+  if (!ready) return null;
+  const { states } = positions();
+  const seats = moves.map((_, index) => game.toPlay(states[index]));
+  return undoTarget(seats, moves, humanSeat(), game.passAction);
+}
+
+/** Step the board to another point in the game; past the end means now. */
+function showPly(ply: number): void {
+  const clamped = Math.max(0, Math.min(ply, moves.length));
+  viewing = clamped === moves.length ? null : clamped;
+  pending = null;
+  render();
 }
 
 // -------------------------------------------------------------------- routing
@@ -217,10 +285,11 @@ function applyRoute(): void {
       network = networks.get(entry.key)?.[0] ?? null;
       game = createGame(entry.key);
       view = VIEWS[entry.key];
+      cancelSearch();
       moves = [];
+      viewing = null;
       report = null;
       pending = null;
-      thinking = false;
       settings = { ...settings, network: network?.file ?? null };
       render();
       loadEngine();
@@ -269,7 +338,32 @@ app.innerHTML = `
         </div>
         <aside class="side">
           <section class="panel game-panel">
-            <button class="button primary wide" id="new">New game</button>
+            <div class="move-head">
+              <span>Moves</span>
+              <span class="move-where" id="move-where"></span>
+            </div>
+            <div class="move-list" id="move-list"></div>
+            <div class="move-nav" role="group" aria-label="Step through the game">
+              <button class="button nav" data-nav="first" aria-label="Start of the game" title="Start (Home)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 5l-7 7 7 7M7 5v14"/></svg>
+              </button>
+              <button class="button nav" data-nav="back" aria-label="Previous move" title="Back (←)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+              </button>
+              <button class="button nav" data-nav="forward" aria-label="Next move" title="Forward (→)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+              </button>
+              <button class="button nav" data-nav="last" aria-label="Back to the game" title="Now (End)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l7 7-7 7M17 5v14"/></svg>
+              </button>
+            </div>
+            <div class="move-actions">
+              <button class="button" id="undo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3"/></svg>
+                Undo
+              </button>
+              <button class="button primary" id="new">New game</button>
+            </div>
           </section>
           <div class="details">
             <button class="quiet-link toggle" id="details-toggle" aria-expanded="false">
@@ -301,6 +395,10 @@ const notesEl = document.getElementById("notes")!;
 const detailsEl = document.querySelector<HTMLElement>(".details")!;
 const detailsToggle = document.getElementById("details-toggle") as HTMLButtonElement;
 const opponentEl = document.getElementById("opponent")!;
+const moveListEl = document.getElementById("move-list")!;
+const moveWhereEl = document.getElementById("move-where")!;
+const undoEl = document.getElementById("undo") as HTMLButtonElement;
+const navEls = [...document.querySelectorAll<HTMLButtonElement>("[data-nav]")];
 const youEl = document.getElementById("you")!;
 const sheetEl = document.getElementById("sheet")!;
 const playTitleEl = document.getElementById("play-title")!;
@@ -328,12 +426,49 @@ boardEl.addEventListener("click", (event) => {
   }
 });
 document.getElementById("new")!.addEventListener("click", () => openSheet(true));
+undoEl.addEventListener("click", undo);
+statusEl.addEventListener("click", (event) => {
+  if ((event.target as HTMLElement).closest("[data-nav-inline]")) showPly(moves.length);
+});
+moveListEl.addEventListener("click", (event) => {
+  const ply = (event.target as HTMLElement).closest<HTMLElement>("[data-ply]");
+  // A move's button shows the position after it was played.
+  if (ply) showPly(Number(ply.dataset.ply) + 1);
+});
+for (const button of navEls) {
+  button.addEventListener("click", () => step(button.dataset.nav!));
+}
+document.addEventListener("keydown", (event) => {
+  if (route.name !== "play" || sheetOpen) return;
+  // The target may be the document itself, which has no closest(): not an element, not typing.
+  const target = event.target instanceof Element ? event.target : null;
+  const typing = target?.closest("input, select, textarea, [contenteditable]");
+  if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+  const keys: Record<string, string> = {
+    ArrowLeft: "back", ArrowRight: "forward", Home: "first", End: "last",
+  };
+  if (!keys[event.key]) return;
+  event.preventDefault();
+  step(keys[event.key]);
+});
+
+function step(direction: string): void {
+  const at = shownPly();
+  if (direction === "first") showPly(0);
+  else if (direction === "back") showPly(at - 1);
+  else if (direction === "forward") showPly(at + 1);
+  else showPly(moves.length);
+}
 sheetEl.addEventListener("submit", (event) => {
   event.preventDefault();
   const form = event.target as HTMLFormElement;
   const chosen = readSettings(new FormData(form), settings);
   closeSheet();
   startGame(chosen);
+});
+sheetEl.addEventListener("change", (event) => {
+  // Ratings belong to a network, so switching the engine redraws the levels.
+  if ((event.target as HTMLInputElement).name === "network") refreshSheet();
 });
 sheetEl.addEventListener("click", (event) => {
   const target = event.target as HTMLElement;
@@ -377,7 +512,7 @@ function drawSheet(chosen: Settings): void {
     entry,
     settings: chosen,
     networks: (networks.get(entry.key) ?? []).map((n) => ({ file: n.file, label: n.label })),
-    ratings: ratings.get(entry.key),
+    ratings,
     cancellable: sheetCancellable,
   });
 }
@@ -413,19 +548,35 @@ function startGame(chosen: Settings): void {
   if (next && next.file !== network?.file) {
     // A different network is a different opponent: load it, then play.
     network = next;
+    cancelSearch();
     moves = [];
+    viewing = null;
     report = null;
     pending = null;
-    thinking = false;
     loadEngine();
     return;
   }
   reset();
 }
 
+/** The moves up to the position on the board, one array per point, so views can cache on it. */
+let shownMoves: { moves: number[]; ply: number; slice: number[] } = { moves, ply: 0, slice: [] };
+
 function context() {
-  const locked = thinking || finished() || !humanToMove() || !ready;
-  return { game, state: state(), moves, humanFirst, locked, pending };
+  const ply = shownPly();
+  if (shownMoves.moves !== moves || shownMoves.ply !== ply) {
+    shownMoves = { moves, ply, slice: ply === moves.length ? moves : moves.slice(0, ply) };
+  }
+  const looking = viewing !== null;
+  const locked = looking || thinking || finished() || !humanToMove() || !ready;
+  return {
+    game,
+    state: positions().states[ply],
+    moves: shownMoves.slice,
+    humanFirst,
+    locked,
+    pending: looking ? null : pending,
+  };
 }
 
 // ------------------------------------------------------------------- screens
@@ -657,8 +808,10 @@ function renderAbout(): void {
 
 /** The chess levels' measured ratings, as a table, once they have loaded. */
 function chessRatingsTable(): string {
-  const measured = ratings.get("chess");
-  if (!measured?.size) return "";
+  const chessNetworks = networks.get("chess") ?? [];
+  const measuredOn = chessNetworks.find((n) => ratings.get(n.file)?.size);
+  const measured = measuredOn ? ratings.get(measuredOn.file) : undefined;
+  if (!measuredOn || !measured?.size) return "";
   const rows = LEVELS.map((level) => {
     const rating = measured.get(level.label);
     return rating
@@ -669,7 +822,8 @@ function chessRatingsTable(): string {
   return `<table class="levels">
     <thead><tr><th>Level</th><th>Rating</th><th>95% range</th></tr></thead>
     <tbody>${rows}</tbody>
-  </table>`;
+  </table>
+  <p class="teaches">Measured for the ${measuredOn.label} engine; the others are not rated yet.</p>`;
 }
 
 /** The measured ladder, fetched once and only when the page asks for it. */
@@ -737,9 +891,10 @@ function render(): void {
   opponentEl.innerHTML = playerCardHtml(engine, tokenFor(entry.key, "engine", !humanFirst));
   youEl.innerHTML = playerCardHtml(you, tokenFor(entry.key, "you", humanFirst));
 
-  boardEl.className = `board ${view.layout}${ctx.locked ? " locked" : ""}`;
+  boardEl.className = `board ${view.layout}${ctx.locked ? " locked" : ""}${viewing !== null ? " looking-back" : ""}`;
   boardEl.innerHTML = view.board(ctx);
   statusEl.innerHTML = statusText() + view.detail(ctx);
+  renderMoves();
 
   detailsToggle.setAttribute("aria-expanded", String(showDetails));
   detailsToggle.textContent = showDetails ? "Hide engine details" : "Engine details";
@@ -761,7 +916,7 @@ function render(): void {
  */
 function playerCards(): [PlayerCard, PlayerCard] {
   const level = LEVELS[settings.level];
-  const rating = ratings.get(entry.key)?.get(level.label);
+  const rating = ratings.get(network?.file ?? "")?.get(level.label);
   const outcome = ready ? game.terminalValue(state()) : null;
   const over = outcome !== null;
   const humanWon = over && outcome !== 0 && (outcome > 0) === humanToMove();
@@ -793,10 +948,59 @@ function playerCards(): [PlayerCard, PlayerCard] {
   ];
 }
 
+/**
+ * The move list, the stepping buttons and Undo.
+ *
+ * Every game has one: each is a list of moves, which is all a move list needs.
+ * Chess names its moves in standard notation; the rest by column, square or line.
+ */
+function renderMoves(): void {
+  const { states, labels } = positions();
+  const plies: Ply[] = labels.map((label, index) => ({
+    index, seat: game.toPlay(states[index]), label,
+  }));
+  const current = shownPly() - 1;
+  const cell = (list: Ply[]) => list
+    .map((ply) => `<button class="ply${ply.index === current ? " current" : ""}${
+      ply.seat === humanSeat() ? " yours" : ""}" data-ply="${ply.index}">${ply.label}</button>`)
+    .join("");
+
+  moveListEl.innerHTML = plies.length === 0
+    ? `<p class="move-empty">${humanFirst ? "Make your first move." : "Caissa moves first."}</p>`
+    : rowsOf(plies).map((row) => `<div class="move-row">
+        <span class="move-number">${row.number}</span>
+        <span class="move-cell">${cell(row.cells[0])}</span>
+        <span class="move-cell">${cell(row.cells[1])}</span>
+      </div>`).join("");
+
+  // Keep the move being shown in view, scrolling the list and never the page.
+  const shown = moveListEl.querySelector<HTMLElement>(".ply.current");
+  if (shown) {
+    const top = shown.offsetTop - moveListEl.offsetTop;
+    if (top < moveListEl.scrollTop || top > moveListEl.scrollTop + moveListEl.clientHeight - 28) {
+      moveListEl.scrollTop = top - moveListEl.clientHeight / 2;
+    }
+  } else if (viewing === null) {
+    moveListEl.scrollTop = moveListEl.scrollHeight;
+  }
+
+  moveWhereEl.textContent = viewing === null ? "" : `move ${viewing} of ${moves.length}`;
+  const at = shownPly();
+  for (const button of navEls) {
+    const nav = button.dataset.nav;
+    button.disabled = nav === "first" || nav === "back" ? at === 0 : at === moves.length;
+  }
+  undoEl.disabled = undoPoint() === null;
+}
+
 /** What needs a sentence: the result, a prompt, a pass, a bonus move, a problem. */
 function statusText(): string {
   if (error) return `<span class="muted">The engine didn't load: ${error}</span>`;
   if (!ready) return `<span class="muted">Loading ${entry.title}…</span>`;
+  if (viewing !== null) {
+    return `<span class="muted">Looking back at move ${viewing} of ${moves.length}.</span>
+      <button class="quiet-link" data-nav-inline="last">Back to the game</button>`;
+  }
 
   const outcome = game.terminalValue(state());
   if (outcome !== null) {
@@ -880,11 +1084,13 @@ async function start(): Promise<void> {
  */
 async function loadRatings(): Promise<void> {
   try {
-    const data: { levels: { label: string; rating: number; low: number; high: number }[] } =
-      await fetch(asset("ratings.json")).then((r) => r.json());
-    ratings = new Map([
-      ["chess", new Map(data.levels.map((l) => [l.label, { rating: l.rating, low: l.low, high: l.high }]))],
-    ]);
+    const data: {
+      networks: Record<string, { levels: { label: string; rating: number; low: number; high: number }[] }>;
+    } = await fetch(asset("ratings.json")).then((r) => r.json());
+    ratings = new Map(Object.entries(data.networks).map(([file, measured]) => [
+      file,
+      new Map(measured.levels.map((l) => [l.label, { rating: l.rating, low: l.low, high: l.high }])),
+    ]));
     // Both the play screen and the guide show them; the gallery does not.
     if (route.name !== "gallery") render();
     refreshSheet();

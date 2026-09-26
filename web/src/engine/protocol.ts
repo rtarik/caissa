@@ -2,12 +2,19 @@
 
 export type ToEngine =
   | { kind: "load"; model: string; manifest: string }
-  | { kind: "move"; moves: number[]; simulations: number };
+  /**
+   * `id` is echoed back with the answer. The page numbers every request and
+   * keeps only the answer to the latest, so a search that finishes after an
+   * undo or a new game - for a position that no longer exists - is dropped
+   * rather than played into the wrong game.
+   */
+  | { kind: "move"; id: number; moves: number[]; simulations: number };
 
 export type FromEngine =
   | { kind: "ready"; game: string; generation?: number; parameters: number }
   | {
       kind: "move";
+      id: number;
       action: number;
       value: number;
       /** Visit counts - or, when `simulations` is 0, the network's own priors. */
@@ -15,4 +22,4 @@ export type FromEngine =
       simulations: number;
       ms: number;
     }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; id?: number };

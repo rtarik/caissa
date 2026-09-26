@@ -1156,3 +1156,71 @@ body[data-game="chess"] {
 /* On the board a black piece sits on a light square; on a dark card it would
    vanish into the card, so off the board it gets a lighter edge. */
 .player-token .chess-piece.black { stroke: color-mix(in srgb, var(--ink) 60%, transparent); }
+
+/* -------------------------------------------------------------- move list */
+
+.game-panel { padding: 14px; gap: 12px; }
+.move-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 620;
+  color: var(--muted);
+}
+.move-where { font-size: 13px; font-weight: 560; color: var(--accent); }
+.move-list {
+  max-height: min(340px, 40dvh);
+  min-height: 120px;
+  overflow-y: auto;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  padding: 6px;
+  font-variant-numeric: tabular-nums;
+  scrollbar-width: thin;
+}
+.move-empty { margin: 10px 8px; font-size: 14px; color: var(--muted); }
+.move-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 4px;
+}
+.move-row + .move-row { margin-top: 1px; }
+.move-number { padding: 5px 0 0 4px; font-size: 13px; color: var(--muted); }
+.move-cell { display: flex; flex-wrap: wrap; gap: 2px; }
+.ply {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 540;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-radius: 7px;
+  padding: 4px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.ply:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.ply.current { background: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--ink); }
+.ply:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.move-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.button.nav { display: grid; place-items: center; padding: 8px 0; }
+.button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.button:disabled { opacity: 0.4; cursor: default; transform: none; }
+.button:disabled:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.move-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.move-actions .button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+
+/* Looking back: the board is a picture of the past, and says so. */
+.board.looking-back { box-shadow: var(--shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent); }
+.status .quiet-link { font-size: 14px; color: var(--accent); }

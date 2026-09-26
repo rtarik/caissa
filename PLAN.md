@@ -926,11 +926,11 @@ can set up, openings that vary.
 | Step | What | Scope |
 |---|---|---|
 | 11.1 | **Done.** The new play screen: larger type, player cards above and below the board, a new-game sheet with level cards and segmented choices in place of the settings form | all games |
-| 11.2 | Move list, stepping back and forth through the game, undo - with stale engine answers discarded | all games |
+| 11.2 | **Done.** Move list, stepping back and forth through the game, undo - with stale engine answers discarded | all games |
 | 11.3 | PGN export and a history of finished games kept in the browser | chess |
 | 11.4 | Board editor and FEN; the engine accepts a starting position | chess |
 | 11.5 | Varied openings from a book of our own 2200+ games, and opening names | chess |
-| 11.6 | **First measurement done** (results below); measure again once 11.5 changes the openings. A rough rating for each level against Stockfish at known strengths, shown on the level cards | chess |
+| 11.6 | **First measurement done** (results below). To do after 11.5: measure again with varied openings, and for *both* chess networks - the untrained one needs `--name chess` and will likely sit below Stockfish's 1320 floor, which the fit reports as a bound. A rough rating for each level against Stockfish at known strengths, shown on the level cards | chess |
 
 Decisions taken in the discussion:
 
@@ -1342,6 +1342,30 @@ shallower twin will go wrong and aims for it; an outside opponent does not make 
 mistakes. A rating is a statement about a pool of players, and a pool made of one family's
 members inflates the distances inside it - one more reason every strength claim in this project
 is made against something outside the training loop.
+
+**11.2, as built.** A move panel for every game: chess in standard notation, the others by
+column, square or the two dots a line joins, all in absolute board coordinates so a move keeps
+its name whichever side you sat on. Clicking a move, the arrow keys or Home/End step the board
+through the game without changing it; the board is locked and outlined while you look back, and
+a line under it says so with a way back. Undo takes back your last move and the reply to it,
+walking past forced passes (undoing a pass would only have the page pass again).
+
+Two pieces of this were about time rather than layout. **Every engine request is numbered** and
+only the answer to the latest is played: undo while the engine thinks, and its answer for the
+abandoned position arrives and is dropped - checked by undoing mid-search and watching the
+game stay put. The same numbering closed an older hole: New game pressed during a search used to
+let the old game's answer land in the new one. And **positions are cached along the whole game**,
+extended by a move or cut back by an undo from the longest shared prefix, so stepping back one
+move never replays a chess game from the start. The list's layout groups a side's consecutive
+moves into one turn, so a Dots & Boxes chain stays in one cell and the two columns still mean
+something; a mutation that the tests could not catch turned out to guard an impossible case
+(turns alternate by construction), and the guard was removed rather than kept untestable.
+
+**A bug the owner spotted within minutes.** The first version keyed ratings by *game*, so
+switching the chess engine to the untrained network kept showing "about 2300" - a rating measured
+on a different network entirely. Ratings are now keyed by network (`ratings.json` holds one entry
+per network, and `scripts/stockfish.py --name` files a measurement under the name the site loads
+it by); an unmeasured network shows no rating rather than someone else's.
 
 **On FIDE.** Stockfish's scale comes from computer rating lists, not from people, so these are
 "roughly FIDE" at best; the site says so. At club level engine lists and FIDE are commonly taken

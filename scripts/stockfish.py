@@ -111,6 +111,9 @@ def _play(task: Task) -> tuple[str, int, float]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", type=Path, default=Path("models/chess-imitation1.pt"))
+    parser.add_argument("--name", default=None,
+                        help="the network's name on the site, as export.py --name gave it; "
+                             "defaults to the checkpoint's file name")
     parser.add_argument("--stockfish", default="stockfish")
     parser.add_argument("--games", type=int, default=24,
                         help="per level and Stockfish strength, split between colours")
@@ -166,14 +169,23 @@ def main() -> None:
             "scores": {str(k): round(float(v), 3) for k, v in by_strength.items()},
         })
 
+    # One entry per network, merged into whatever is already there: a rating
+    # belongs to the network it was measured on, and the site shows it for that
+    # network alone. Keyed by the name the site loads the network under.
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    existing = json.loads(args.out.read_text()) if args.out.exists() else {}
+    measured = existing.get("networks", {})
+    name = args.name or args.checkpoint.stem
+    measured[name] = {
+        "checkpoint": args.checkpoint.name,
+        "moveSeconds": args.move_seconds,
+        "levels": rows,
+    }
     args.out.write_text(json.dumps({
         "reference": "Stockfish 19, UCI_LimitStrength",
-        "moveSeconds": args.move_seconds,
-        "checkpoint": args.checkpoint.name,
-        "levels": rows,
+        "networks": measured,
     }, indent=1) + "\n")
-    print(f"\nwritten to {args.out}")
+    print(f"\nwritten to {args.out} under {name!r}")
 
 
 if __name__ == "__main__":

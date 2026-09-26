@@ -35,7 +35,12 @@ export interface SheetOptions {
   entry: LadderEntry;
   settings: Settings;
   networks: { file: string; label: string }[];
-  ratings?: Map<string, Rating>;
+  /**
+   * Measured ratings, per network and then per level. A rating belongs to the
+   * network it was measured on: shown against another it is simply wrong, which
+   * is how the first version had the untrained network claiming 2300.
+   */
+  ratings?: Map<string, Map<string, Rating>>;
   /** Whether a game is under way, so that closing the sheet has somewhere to go back to. */
   cancellable: boolean;
 }
@@ -53,7 +58,8 @@ export function approximately(rating: number): number {
 }
 
 export function sheetHtml(options: SheetOptions): string {
-  const { entry, settings, networks, ratings } = options;
+  const { entry, settings, networks } = options;
+  const ratings = options.ratings?.get(settings.network ?? "");
   const [first, second] = entry.seats ?? ["First", "Second"];
   const seats: [SeatChoice, string][] = [["first", first], ["random", "Random"], ["second", second]];
 

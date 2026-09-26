@@ -66,12 +66,29 @@ describe("the new-game sheet", () => {
   });
 
   it("shows ratings when they have been measured, and says what they are", () => {
-    const ratings = new Map([["Master", { rating: 2100, low: 2000, high: 2200 }]]);
-    const html = sheetHtml({ entry: chess, settings: defaults, networks: [], ratings, cancellable: false });
+    const ratings = new Map([["imitation", new Map([["Master", { rating: 2100, low: 2000, high: 2200 }]])]]);
+    const settings = { ...defaults, network: "imitation" };
+    const html = sheetHtml({ entry: chess, settings, networks: [], ratings, cancellable: false });
     expect(html).toContain("about 2100");
     expect(html).toContain("Stockfish");
-    const without = sheetHtml({ entry: chess, settings: defaults, networks: [], cancellable: false });
+    const without = sheetHtml({ entry: chess, settings, networks: [], cancellable: false });
     expect(without).not.toContain("Stockfish");
+  });
+
+  it("shows a network's ratings only for that network", () => {
+    // The first version rated every chess engine with the imitation network's
+    // numbers, so the untrained one claimed to play at 2300.
+    const ratings = new Map([["imitation", new Map([["Master", { rating: 2300, low: 2200, high: 2400 }]])]]);
+    const networks = [{ file: "imitation", label: "Imitation 1" }, { file: "untrained", label: "Untrained" }];
+    const measured = sheetHtml({
+      entry: chess, settings: { ...defaults, network: "imitation" }, networks, ratings, cancellable: false,
+    });
+    const unmeasured = sheetHtml({
+      entry: chess, settings: { ...defaults, network: "untrained" }, networks, ratings, cancellable: false,
+    });
+    expect(measured).toContain("about 2300");
+    expect(unmeasured).not.toContain("about 2300");
+    expect(unmeasured).not.toContain("Stockfish");
   });
 
   it("can be cancelled only when there is a game to go back to", () => {
@@ -143,8 +160,10 @@ describe("showing a rating", () => {
   });
 
   it("shows the rounded figure on the level card, not the raw fit", () => {
-    const ratings = new Map([["Master", { rating: 2288, low: 2209, high: 2369 }]]);
-    const html = sheetHtml({ entry: chess, settings: defaults, networks: [], ratings, cancellable: false });
+    const ratings = new Map([["imitation", new Map([["Master", { rating: 2288, low: 2209, high: 2369 }]])]]);
+    const html = sheetHtml({
+      entry: chess, settings: { ...defaults, network: "imitation" }, networks: [], ratings, cancellable: false,
+    });
     expect(html).toContain("about 2300");
     expect(html).not.toContain("2288");
   });

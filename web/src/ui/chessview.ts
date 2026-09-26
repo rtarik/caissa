@@ -39,7 +39,8 @@ function displayOrder(humanWhite: boolean): number[] {
 }
 
 /** A move's notation, from chess.js's public API: disambiguation, check and mate. */
-function san(state: ChessState, move: NamedMove): string {
+/** A move in standard algebraic notation, from the position it is played in. */
+export function san(state: ChessState, move: NamedMove): string {
   return new Board(state.fen).move({
     from: move.from,
     to: move.to,
@@ -225,15 +226,4 @@ export const chessView: View = {
     return `${map}<div class="meta candidates"><span>${best.join(" · ")}</span></div>`;
   },
 
-  notes(ctx) {
-    const { sans } = replayed(ctx);
-    if (sans.length === 0) return `<h2>Moves</h2><p class="teaches">No moves yet.</p>`;
-    const rows: string[] = [];
-    for (let i = 0; i < sans.length; i += 2) {
-      rows.push(`<span class="num">${i / 2 + 1}.</span><span>${sans[i]}</span>`
-        + `<span>${sans[i + 1] ?? ""}</span>`);
-    }
-    // Reversed flex keeps the list scrolled to the latest move as it grows.
-    return `<h2>Moves</h2><div class="moves-scroll"><div class="movelist">${rows.join("")}</div></div>`;
-  },
 };

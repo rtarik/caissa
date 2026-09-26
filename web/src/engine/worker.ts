@@ -55,6 +55,7 @@ self.onmessage = async (event: MessageEvent<ToEngine>) => {
         const { priors, value } = await evaluator.evaluate(game, state);
         post({
           kind: "move",
+          id: message.id,
           action: argmax(priors),
           value,
           visits: Array.from(priors),
@@ -75,6 +76,7 @@ self.onmessage = async (event: MessageEvent<ToEngine>) => {
 
       post({
         kind: "move",
+        id: message.id,
         action: argmax(policy),
         value: root.value(),
         visits: search.visitCounts(root),
@@ -83,6 +85,10 @@ self.onmessage = async (event: MessageEvent<ToEngine>) => {
       });
     }
   } catch (error) {
-    post({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+    post({
+      kind: "error",
+      message: error instanceof Error ? error.message : String(error),
+      id: message.kind === "move" ? message.id : undefined,
+    });
   }
 };
