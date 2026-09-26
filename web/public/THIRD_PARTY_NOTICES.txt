@@ -55,3 +55,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+------------------------------------------------------------------------------
+Opening names: lichess-org/chess-openings
+https://github.com/lichess-org/chess-openings
+
+The names and ECO codes shown for chess openings come from this collection. As
+a collection of facts it is in the public domain, and insofar as its curation is
+copyrightable it is released under the CC0 Public Domain Dedication. Credited
+here out of gratitude rather than obligation.
+
+Opening book: the book the chess engine draws its first moves from was built by
+this project from games played on Lichess (database.lichess.org, CC0), keeping
+games in which both players were rated 2200 or above.

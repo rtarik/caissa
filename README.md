@@ -104,6 +104,18 @@ often resigning would have thrown a game away:
 .venv/bin/python scripts/resignations.py models/chess-gen0020.pt --games 60
 ```
 
+The chess engine's first moves come from a book built from the same 2200+ games, so it
+varies its openings instead of playing the most popular line every time; openings are named
+from Lichess's public-domain list, downloaded to `data/openings/`:
+
+```bash
+.venv/bin/python scripts/book.py --months 2020-01
+```
+
+```bash
+.venv/bin/python scripts/openings.py
+```
+
 `scripts/levels.py` measures what the site's four difficulty levels are worth in each game, by
 playing each level against the one below it. It writes `web/public/levels.json`, which the
 *How it works* page reads:

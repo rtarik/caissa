@@ -1374,3 +1374,26 @@ body[data-game="chess"] {
 .mini-sq { display: grid; place-items: center; background: #e3e7ef; }
 .mini-sq.dark { background: #9ba8c1; }
 .mini-sq .chess-piece { width: 100%; height: 100%; stroke-width: 4; filter: none; }
+
+/* ------------------------------------------------------------- openings */
+
+.opening-name {
+  margin: -4px 0 0;
+  font-size: 14px;
+  font-weight: 560;
+  color: var(--ink);
+  line-height: 1.35;
+}
+.opening-name[hidden] { display: none; }
+.opening-name .eco {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.book-note { margin: 0 0 4px; font-size: 14px; }

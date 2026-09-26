@@ -193,6 +193,16 @@ describe("the exported PGN", () => {
     expect(board.getHeaders().WhiteElo).toBeUndefined();
   });
 
+  it("names the opening in the tags analysis tools read", () => {
+    const board = new Board();
+    board.loadPgn(recordPgn(record({ opening: ["B50", "Sicilian Defense"] })));
+    expect(board.getHeaders().ECO).toBe("B50");
+    expect(board.getHeaders().Opening).toBe("Sicilian Defense");
+    const unnamed = new Board();
+    unnamed.loadPgn(recordPgn(record()));
+    expect(unnamed.getHeaders().ECO).toBeUndefined();
+  });
+
   it("records a finished game's result and why it ended", () => {
     const pgn = recordPgn(record({
       moves: actions(["f3", "e5", "g4", "Qh4#"]),

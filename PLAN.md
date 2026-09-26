@@ -929,7 +929,7 @@ can set up, openings that vary.
 | 11.2 | **Done.** Move list, stepping back and forth through the game, undo - with stale engine answers discarded | all games |
 | 11.3 | **Done.** PGN export and a history of games kept in the browser | chess |
 | 11.4 | **Done.** Board editor and FEN; the engine accepts a starting position | chess |
-| 11.5 | Varied openings from a book of our own 2200+ games, and opening names | chess |
+| 11.5 | **Done.** Varied openings from a book of our own 2200+ games, and opening names | chess |
 | 11.6 | **First measurement done** (results below). To do after 11.5: measure again with varied openings, and for *both* chess networks - the untrained one needs `--name chess` and will likely sit below Stockfish's 1320 floor, which the fit reports as a bound. A rough rating for each level against Stockfish at known strengths, shown on the level cards | chess |
 
 Decisions taken in the discussion:
@@ -1407,6 +1407,27 @@ last move instead of replaying anything. The regression test renders exactly tha
 second finding came from mutation testing: a test that only checked the engine's start position
 was "not finished" passed just as well when the engine ignored it, since the usual start is not
 finished either; it now checks it is the position asked for.
+
+**11.5, as built.** The repetition had a precise cause: the engine always plays its most
+searched move, and a network that learned from people makes that the *most popular* human move,
+so every game against 1. e4 was a Sicilian. The fix is a book from the same 2200+ games
+(`scripts/book.py`): every position reached at least 200 times in the first 16 plies - 3,486 of
+them - with the moves played there at least 20 times and in at least 3% of games, 10,615 moves
+in all. The engine samples in proportion to how often strong players chose each: after 1. e4, c5
+39%, e5 19%, e6 13%, c6 11%, and so on. Randomising the network's own choices would also vary the
+games, but by sometimes playing worse moves; every book move was played many times at 2200+, so
+this variety costs nothing. Book moves are played by the page, not the worker (which stays
+game-agnostic), under the same request numbering as a search, so an undo during the short pause
+drops them.
+
+Openings are named from Lichess's CC0 list (`scripts/openings.py`, 3,815 named lines), and
+both the book and the names are keyed by *position*, not move order - the first four FEN fields,
+which is also the chess state's repetition key - so a transposition is recognised: the Queen's
+Gambit Declined reached through 1. c4 is still named as one. The name shows above the move list,
+the analysis panel says when a move came from the book and how common it is, and the PGN carries
+ECO and Opening tags. The files are written in Python and read in TypeScript, so the tests load
+the shipped files and check every book position parses under the browser's rules with the same
+key, and every one of the 10,615 moves is legal where the book offers it.
 
 **A bug the owner spotted within minutes.** The first version keyed ratings by *game*, so
 switching the chess engine to the untrained network kept showing "about 2300" - a rating measured
@@ -2090,6 +2111,13 @@ not a substitute for the AlphaZero paper.
   monotonically while it lost 228 Elo. A policy loss measured against a drifting search falls
   when the network agrees with a worse teacher. Only measurements from outside the loop - the
   arena, a held-out exam, a comparison of the network with and without search - can see it.
+- **A mutation harness can outlive its mutant** — Python trusts a cached `.pyc` when the source's
+  size and modification second are unchanged. Swapping `<=` for `>=` keeps the size, and a
+  restore inside the same second keeps the second, so the next run executed the mutant's
+  bytecode from untouched source: a test "failed" for code that was correct on disk, and the
+  failure was right about the code that actually ran. Mutation runs now go through `python -B`
+  with `PYTHONDONTWRITEBYTECODE=1`. The general lesson is the one this project keeps relearning:
+  know what is actually being measured, not what should be.
 - **A rating is a statement about a pool** — Elo differences only mean something among the
   players they were measured against. Anchoring a ladder takes opponents with known ratings (here,
   Stockfish at fixed strengths) and a maximum-likelihood fit across all of them at once. And a pool

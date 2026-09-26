@@ -103,6 +103,10 @@ export function recordPgn(record: GameRecord): string {
     // The engine's side only: a person's rating is not ours to guess at.
     board.setHeader(record.humanWhite ? "BlackElo" : "WhiteElo", String(record.rating));
   }
+  if (record.opening) {
+    board.setHeader("ECO", record.opening[0]);
+    board.setHeader("Opening", record.opening[1]);
+  }
   board.setHeader("TimeControl", "-");
   board.setHeader("Termination", record.result === "*" ? "unterminated" : "normal");
   const comment = closing(record);

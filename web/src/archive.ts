@@ -38,6 +38,8 @@ export interface GameRecord {
   result: Result;
   /** Why the game ended, in words: "checkmate", "resignation", ... */
   termination?: string;
+  /** The opening reached, as [ECO code, name], when it had a name. */
+  opening?: [string, string];
 }
 
 /** The part of the Web Storage API this needs, so tests can hand in their own. */

@@ -22,7 +22,8 @@ import { rowsOf, undoTarget, type Ply } from "./moves";
 import { browserStore, clearGames, deleteGame, loadGames, newGameId, saveGame, type GameRecord } from "./archive";
 import { chessOutcome, collectionPgn, engineName, movesText, pgnFileName, recordPgn } from "./pgn";
 import { pieceSvg } from "./ui/pieces";
-import type { ChessState } from "./games/chess";
+import { actionOf, type ChessState } from "./games/chess";
+import { bookMove, openingOf, parseBook, parseNames, type Book, type BookMove, type Names } from "./openings";
 import { STANDARD_FEN, fenOf, parseFen, problems, withCastling, withPiece, withSideToMove, type Castling, type Setup } from "./editor";
 import { editorBoardHtml, paletteHtml, problemsHtml, rulesHtml, type Tool } from "./ui/editorview";
 import { playerCardHtml, tokenFor, type PlayerCard } from "./ui/players";
@@ -82,6 +83,16 @@ const store = browserStore();
 let startFen: string | null = null;
 /** Where the next game will begin: what the new-game sheet shows, until changed. */
 let customStart: string | null = null;
+/**
+ * The opening book and the opening names, loaded the first time chess is
+ * played, and what the last book move was, for the analysis panel.
+ */
+let book: Book | null = null;
+let names: Names | null = null;
+let openingsLoading: Promise<void> | null = null;
+let bookNote: (BookMove & { san: string }) | null = null;
+/** A book move is played after a short pause, so it reads as a reply and not a reflex. */
+const BOOK_PAUSE = 450;
 /** The board editor's work in progress while it is open, and the piece it places. */
 let editing: Setup | null = null;
 let tool: Tool = "P";
@@ -119,6 +130,7 @@ worker.onmessage = (event: MessageEvent<FromEngine>) => {
     if (message.id !== requestId) return;
     thinking = false;
     report = message;
+    bookNote = null;
     moves = [...moves, message.action];
     saveCurrent();
     render();
@@ -226,6 +238,7 @@ function play(action: number): void {
   if (thinking || !ready || finished() || !humanToMove()) return;
   if (!game.legalActions(state())[action]) return;
   report = null;
+  bookNote = null;
   pending = null;
   moves = [...moves, action];
   saveCurrent();
@@ -255,12 +268,65 @@ function advance(): void {
     return;
   }
 
+  const fromBook = entry.key === "chess" && book ? bookMove(state() as ChessState, book) : null;
+  if (fromBook) {
+    playFromBook(fromBook);
+    return;
+  }
+
   thinking = true;
   requestId += 1;
   render();
   worker.postMessage({
     kind: "move", id: requestId, moves, simulations, start: startFen ?? undefined,
   } satisfies ToEngine);
+}
+
+/**
+ * Play the engine's move from the opening book instead of searching.
+ *
+ * Numbered like an engine request, so an undo or a new game during the pause
+ * cancels it the same way it cancels a search in progress.
+ */
+function playFromBook(choice: BookMove): void {
+  const before = state() as ChessState;
+  const action = actionOf(before, {
+    from: choice.uci.slice(0, 2),
+    to: choice.uci.slice(2, 4),
+    promotion: choice.uci.length > 4 ? choice.uci[4] : null,
+  });
+  thinking = true;
+  requestId += 1;
+  const id = requestId;
+  render();
+  window.setTimeout(() => {
+    if (id !== requestId) return;
+    thinking = false;
+    report = null;
+    bookNote = { ...choice, san: moveLabel("chess", before, action) };
+    moves = [...moves, action];
+    saveCurrent();
+    render();
+    advance();
+  }, BOOK_PAUSE);
+}
+
+/** Fetch the book and the names once, the first time chess is played. */
+function loadOpenings(): Promise<void> {
+  openingsLoading ??= (async () => {
+    try {
+      const [bookData, nameData] = await Promise.all([
+        fetch(asset("book.json")).then((r) => r.json()),
+        fetch(asset("openings.json")).then((r) => r.json()),
+      ]);
+      book = parseBook(bookData);
+      names = parseNames(nameData);
+      if (route.name === "play" && entry.key === "chess") render();
+    } catch {
+      // Without them the engine simply searches every move and nothing is named.
+    }
+  })();
+  return openingsLoading;
 }
 
 function reset(): void {
@@ -392,7 +458,15 @@ function currentRecord(): GameRecord | null {
     result: outcome.result,
     termination: outcome.termination,
     ...(startFen ? { start: startFen } : {}),
+    ...(openingNow() ? { opening: openingNow()! } : {}),
   };
+}
+
+/** The opening the game has reached so far, when the names have loaded. */
+function openingNow(): [string, string] | null {
+  if (!names) return null;
+  const found = openingOf(positions().states as ChessState[], names);
+  return found ? [found[0], found[1]] : null;
 }
 
 /**
@@ -445,6 +519,7 @@ function applyRoute(): void {
       report = null;
       pending = null;
       settings = { ...settings, network: network?.file ?? null };
+      if (entry.key === "chess") void loadOpenings();
       render();
       loadEngine();
       openSheet(false);
@@ -497,6 +572,7 @@ app.innerHTML = `
               <span>Moves</span>
               <span class="move-where" id="move-where"></span>
             </div>
+            <div class="opening-name" id="opening-name" hidden></div>
             <div class="move-list" id="move-list"></div>
             <div class="move-nav" role="group" aria-label="Step through the game">
               <button class="button nav" data-nav="first" aria-label="Start of the game" title="Start (Home)">
@@ -595,6 +671,7 @@ const detailsToggle = document.getElementById("details-toggle") as HTMLButtonEle
 const opponentEl = document.getElementById("opponent")!;
 const moveListEl = document.getElementById("move-list")!;
 const moveWhereEl = document.getElementById("move-where")!;
+const openingNameEl = document.getElementById("opening-name")!;
 const undoEl = document.getElementById("undo") as HTMLButtonElement;
 const navEls = [...document.querySelectorAll<HTMLButtonElement>("[data-nav]")];
 const youEl = document.getElementById("you")!;
@@ -1080,6 +1157,20 @@ function renderAbout(): void {
         The chess opponent you can play is the imitation network, so it plays a bit
         like the people it learned from.
       </p>
+      <h3 class="prose-sub">Why its openings vary</h3>
+      <p>
+        A network that learned by copying people plays the <em>most popular</em>
+        move in every position, every time: against 1. e4 that was the Sicilian,
+        game after game. So for its first moves Caissa draws on a book instead: for
+        each of 3,486 positions strong players reached often, the moves they chose
+        there and how often (${code("scripts/book.py", "book.py")}). It picks among
+        them in proportion, so the main line comes up most and every respectable
+        alternative some of the time. Every move in the book was played many times
+        by 2200+ players, which is why the variety costs it nothing in strength;
+        once the game leaves the book, the network and the search take over.
+        Openings are named from Lichess's public list, by position, so a line that
+        transposes is still recognised (${code("scripts/openings.py", "openings.py")}).
+      </p>
       <h3 class="prose-sub">How strong is it?</h3>
       <p>
         Each level played Stockfish, the strongest open-source engine, told to play
@@ -1395,6 +1486,12 @@ function renderMoves(): void {
   }
 
   moveWhereEl.textContent = viewing === null ? "" : `move ${viewing} of ${moves.length}`;
+  // Named at the point the board shows, so stepping back through a game shows
+  // how its opening was described at each stage.
+  const opening = entry.key === "chess" && names
+    ? openingOf(states.slice(0, shownPly() + 1) as ChessState[], names) : null;
+  openingNameEl.hidden = !opening;
+  openingNameEl.innerHTML = opening ? `<span class="eco">${opening[0]}</span> ${opening[1]}` : "";
   const at = shownPly();
   for (const button of navEls) {
     const nav = button.dataset.nav;
@@ -1455,6 +1552,12 @@ function statusText(): string {
 }
 
 function analysisPanel(): string {
+  if (bookNote) {
+    return `<h2>Analysis</h2>
+      <p class="book-note"><strong>${bookNote.san}</strong> came from the opening book, not a search.</p>
+      <p class="teaches">${Math.round(bookNote.share * 100)}% of strong players chose it here,
+        across ${bookNote.games.toLocaleString()} games.</p>`;
+  }
   if (!report) {
     return `<h2>Analysis</h2><p class="teaches">${
       ready ? "Appears after the engine's first move." : engineInfo || "Loading…"
@@ -1500,6 +1603,7 @@ async function start(): Promise<void> {
   render();
   if (requested.name === "play") {
     route = { name: "play", key: entry.key };
+    if (entry.key === "chess") void loadOpenings();
     render();
     loadEngine();
     openSheet(false);
