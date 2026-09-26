@@ -915,6 +915,51 @@ screen by default, and every game wearing Four in a Row's red-and-yellow-on-blue
       search reaches a result in none of forty searches, which is the restriction's own
       docstring coming true in the test file.
 
+
+### Phase 11 — A play screen, and chess you can study — *in progress*
+
+Agreed with the owner after a round of sketches. Two halves: a play screen built around the
+game rather than around a settings form, and the chess features that make it worth playing
+seriously - a rating to measure yourself against, games you can take elsewhere, positions you
+can set up, openings that vary.
+
+| Step | What | Scope |
+|---|---|---|
+| 11.1 | **Done.** The new play screen: larger type, player cards above and below the board, a new-game sheet with level cards and segmented choices in place of the settings form | all games |
+| 11.2 | Move list, stepping back and forth through the game, undo - with stale engine answers discarded | all games |
+| 11.3 | PGN export and a history of finished games kept in the browser | chess |
+| 11.4 | Board editor and FEN; the engine accepts a starting position | chess |
+| 11.5 | Varied openings from a book of our own 2200+ games, and opening names | chess |
+| 11.6 | **First measurement done** (results below); measure again once 11.5 changes the openings. A rough rating for each level against Stockfish at known strengths, shown on the level cards | chess |
+
+Decisions taken in the discussion:
+
+- **A sheet, not a setup page.** New game opens over the board; the board is never more than one
+  click away.
+- **Undo and browsing are for every game**, since every game is a list of moves. PGN, the editor
+  and openings are chess only.
+- **Stockfish is the only rating reference.** A rough estimate is the goal; Stockfish's
+  `UCI_Elo` is calibrated to computer rating lists rather than to people, which is said on the
+  page rather than hidden. (Maia would anchor to human ratings more directly, and was dropped as
+  more setup than the precision is worth.)
+- **Variety, not a practice mode.** The engine should stop playing the same line every game;
+  choosing an opening to rehearse is not wanted. Opening names still come from Lichess's CC0
+  openings list, for the move list and the PGN headers.
+- **History lives in the browser**, with PGN export so a game can be analysed elsewhere. No
+  import.
+
+**11.1, as built.** The sheet opens when you enter a game, and the engine loads behind it, so
+the wait for a network to arrive is spent choosing an opponent rather than staring at a board.
+Its choices are native radio buttons drawn as cards and segments, so the keyboard and screen
+readers work without any widget code. Everything behind the sheet is `inert` while it is open,
+and the engine does not make the first move of a game the player has not started yet. Whose
+turn it is moved from a sentence under the board onto the card of the side to move; the status
+line keeps what needs a sentence - the result, a prompt, a pass. The board sizes itself to the
+window's height as well as its width, because sized by width alone it pushed your own card below
+the fold on a laptop. Two bugs found on the way, both by looking: the king on your card was black
+when you played White (the piece colours were defined inside the board's scope only), and the
+stylesheet guard from Phase 10 caught hidden radio inputs switched off with `pointer-events`.
+
 ---
 
 ## Results
@@ -1270,6 +1315,37 @@ boxes grew from 30% to 50%, and search stopped adding anything to it. Random ope
 the positions; they cannot supply a reason to care. The agent does what it was asked —
 maximise the chance of winning — and a person reads the result as a blunder because a person
 also counts the score.
+
+### Chess ratings against Stockfish (Phase 11.6)
+
+Each level against Stockfish 19 with `UCI_LimitStrength` at 1320, 1500, ... 2500: 24 games a
+step, colours alternating, Stockfish on 0.1 s a move, 672 games in all. One rating per level
+fitted to all of its results by maximum likelihood (`caissa/rating.py`), 95% likelihood-ratio
+ranges.
+
+| Level | Rating | 95% range | Shown as |
+|---|---|---|---|
+| Beginner (no search) | 1469 | 1386-1548 | about 1450 |
+| Casual (40 simulations) | 1767 | 1692-1843 | about 1750 |
+| Strong (200) | 2180 | 2104-2258 | about 2200 |
+| Master (600) | 2288 | 2209-2369 | about 2300 |
+
+**Checked against the obvious objection.** Stockfish's limiter was calibrated with more thinking
+time than 0.1 s, and a rushed Stockfish might play below its label and flatter us. Master was
+replayed against 2300 at five times the time: 52% against 58% before, a fitted 2314 against
+2288. The same number, inside its range.
+
+**The finding: self-play Elo stretches gaps.** Measured against each other (Phase 10's ladder),
+Master beat Strong by 374 Elo. Measured against Stockfish, the two are about 110 apart. The same
+network at two depths shares every misjudgement, so the deeper search knows exactly where its
+shallower twin will go wrong and aims for it; an outside opponent does not make those tailored
+mistakes. A rating is a statement about a pool of players, and a pool made of one family's
+members inflates the distances inside it - one more reason every strength claim in this project
+is made against something outside the training loop.
+
+**On FIDE.** Stockfish's scale comes from computer rating lists, not from people, so these are
+"roughly FIDE" at best; the site says so. At club level engine lists and FIDE are commonly taken
+to be in the same neighbourhood, which is the whole of the claim.
 
 ### The four difficulty levels, measured (Phase 10)
 
@@ -1943,6 +2019,12 @@ not a substitute for the AlphaZero paper.
   monotonically while it lost 228 Elo. A policy loss measured against a drifting search falls
   when the network agrees with a worse teacher. Only measurements from outside the loop - the
   arena, a held-out exam, a comparison of the network with and without search - can see it.
+- **A rating is a statement about a pool** — Elo differences only mean something among the
+  players they were measured against. Anchoring a ladder takes opponents with known ratings (here,
+  Stockfish at fixed strengths) and a maximum-likelihood fit across all of them at once. And a pool
+  of one engine's own variants inflates its gaps: Master over Strong was +374 against itself and
+  about +110 against Stockfish, because a deeper search exploits precisely the blind spots its
+  shallower twin shares with it.
 - **Measure with search and without it** — the same two networks were 209 Elo apart depending
   on whether search was switched on. That gap is a diagnosis: equal without search and far apart
   with it means the fault is in the value head, not the policy.

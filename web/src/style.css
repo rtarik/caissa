@@ -1,5 +1,9 @@
 :root {
   color-scheme: light dark;
+  /* The board, and the player cards that frame it, share one width: the widest
+     that still leaves both cards on screen. A board sized to the page's width
+     alone pushed your own card below the fold on a laptop. */
+  --stage: clamp(300px, calc(100dvh - 290px), 580px);
   --bg: #f6f6f4;
   --panel: #ffffff;
   --ink: #14161b;
@@ -41,7 +45,7 @@ body {
   min-height: 100dvh;
   background: var(--bg);
   color: var(--ink);
-  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 16.5px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -178,17 +182,23 @@ a.card:hover {
 
 /* -------------------------------------------------------------- play screen */
 
-.play-head { margin-bottom: 16px; }
+/* One row: the way back, and where you are. */
+.play-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .back {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
   color: var(--muted);
+  border: 1px solid var(--line);
+  background: var(--panel);
   text-decoration: none;
-  margin-bottom: 10px;
+  transition: color 140ms ease, border-color 140ms ease;
 }
-.back:hover { color: var(--ink); }
+.back:hover { color: var(--ink); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.back .chevron { width: 18px; height: 18px; }
 .chevron { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .play-title {
   display: flex;
@@ -218,12 +228,6 @@ a.card:hover {
 .details .panel { width: 100%; }
 .toggle.open { color: var(--ink); }
 
-.field-note {
-  color: var(--muted);
-  font-size: 12.5px;
-  line-height: 1.4;
-  margin: -5px 0 0;
-}
 
 /* ------------------------------------------------------------ how it works */
 
@@ -231,6 +235,7 @@ a.card:hover {
 .prose h1 { font-size: clamp(22px, 3.4vw, 30px); font-weight: 660; letter-spacing: -0.02em; margin: 0 0 10px; }
 .prose .lede { font-size: 16px; color: var(--ink); margin-bottom: 18px; }
 .prose h2 { font-size: 15px; font-weight: 620; margin: 26px 0 6px; }
+.prose .prose-sub { font-size: 14.5px; font-weight: 620; margin: 20px 0 6px; }
 .prose p { margin: 0 0 12px; color: color-mix(in srgb, var(--ink) 82%, var(--muted)); }
 .prose strong { color: var(--ink); font-weight: 600; }
 .ladder { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 12px; }
@@ -323,7 +328,7 @@ a.card:hover {
   gap: 8px;
   box-shadow: var(--shadow);
   touch-action: manipulation;
-  max-width: 520px;
+  max-width: var(--stage);
   margin: 0 auto;
 }
 .grid-7 { grid-template-columns: repeat(7, 1fr); gap: 10px; }
@@ -432,11 +437,13 @@ a.card:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 16px auto 0;
-  max-width: 520px;
-  min-height: 26px;
-  font-weight: 560;
+  margin: 12px auto 0;
+  max-width: var(--stage);
+  min-height: 28px;
+  font-size: 16px;
+  font-weight: 520;
 }
+.status .result { font-size: 18px; font-weight: 640; letter-spacing: -0.01em; }
 .status .spacer { margin-left: auto; }
 .dot {
   width: 10px;
@@ -469,7 +476,6 @@ a.card:hover {
   margin: 0 0 12px;
 }
 
-.field { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 select {
   appearance: none;
   font: inherit;
@@ -499,8 +505,6 @@ select:focus-visible {
 }
 /* The list itself is the platform's, so give it colours it can actually use. */
 select option { background: var(--panel); color: var(--ink); }
-.field + .field { margin-top: 11px; }
-label { color: var(--muted); font-size: 13px; }
 
 button.action {
   font: inherit;
@@ -689,9 +693,6 @@ footer .quiet-link:last-child { margin-left: auto; }
 .board.chess {
   --light: #e3e7ef;
   --dark: #9ba8c1;
-  --piece-white: #faf8f2;
-  --piece-black: #283042;
-  --piece-edge: #161a23;
   grid-template-columns: repeat(8, 1fr);
   gap: 0;
   padding: 10px;
@@ -948,3 +949,210 @@ body[data-game="chess"] {
   --icon-one: #6d5fc4;
   --icon-two: #cfc6f2;
 }
+/* The pieces' colours belong to the game, not the board: the player cards draw
+   a king too, and outside the board's scope it came out black for both sides. */
+body[data-game="chess"] {
+  --piece-white: #faf8f2;
+  --piece-black: #283042;
+  --piece-edge: #161a23;
+}
+
+
+/* ----------------------------------------------------------------- buttons */
+
+.button {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 580;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 10px 18px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, transform 80ms ease;
+}
+.button:hover { background: color-mix(in srgb, var(--ink) 11%, transparent); }
+.button:active { transform: scale(0.98); }
+.button:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.button.primary:hover { background: color-mix(in srgb, var(--ink) 86%, var(--bg)); }
+.button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.button.ghost:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.button.wide { width: 100%; }
+
+/* ---------------------------------------------------------------- players */
+
+/* One card for each side, the board between them: the side to move is lit. */
+.player-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: var(--stage);
+  margin: 0 auto;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+#opponent .player-card { margin-bottom: 10px; }
+#you .player-card { margin-top: 10px; }
+.player-card.active {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.player-card.winner { border-color: var(--accent); }
+.player-text { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.player-name { font-size: 16px; font-weight: 620; letter-spacing: -0.01em; }
+.player-level {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.player-detail { font-size: 13.5px; color: var(--muted); }
+.player-status { font-size: 14px; font-weight: 560; color: var(--ink); white-space: nowrap; }
+.player-card.winner .player-status::after { content: "Winner"; }
+
+.player-token { flex: none; width: 34px; height: 34px; display: grid; place-items: center; }
+.player-token.disc { border-radius: 50%; width: 26px; height: 26px; margin: 4px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 30%, transparent); }
+.player-token.disc.you { background: var(--you); }
+.player-token.disc.engine { background: var(--engine); }
+.player-token.pawn .token { position: static; width: 30px; height: 30px; fill: currentColor;
+  stroke: var(--piece-edge, rgb(0 0 0 / 0.35)); stroke-width: 3; }
+.player-token.pawn.you { color: var(--you); }
+.player-token.pawn.engine { color: var(--engine); }
+.player-token.piece .chess-piece { width: 32px; height: 32px; }
+
+/* ------------------------------------------------------------------ sheet */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(8 10 14 / 0.62);
+  animation: fade-in 160ms ease;
+}
+.sheet-backdrop[hidden] { display: none; }
+.sheet {
+  width: min(600px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 26px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.4);
+  animation: rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+@media (prefers-reduced-motion: reduce) {
+  .sheet-backdrop, .sheet { animation: none; }
+}
+/* On a phone the sheet comes up from the bottom, where the thumb already is. */
+@media (max-width: 560px) {
+  .sheet-backdrop { place-items: end stretch; padding: 0; }
+  .sheet { width: 100%; border-radius: 20px 20px 0 0; padding: 22px 18px 26px; max-height: 92dvh; }
+}
+
+.sheet-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 22px; }
+.sheet-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.sheet-icon .icon { width: 28px; height: 28px; }
+.sheet-head h2 { font-size: 22px; font-weight: 660; letter-spacing: -0.02em; margin: 2px 0 4px; }
+.sheet-rule { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.45; }
+
+.choice-group { border: 0; margin: 0 0 22px; padding: 0; min-width: 0; }
+.choice-group legend {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 10px;
+  padding: 0;
+}
+.choice-note { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+
+/* Radio buttons underneath, drawn as cards: the keyboard and the form still work. */
+.level-cards { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 560px) { .level-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.level-card {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 13px 13px 12px;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+.level-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+/* Hidden, not removed: the label takes the click and the input keeps the state. */
+.level-card input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.level-card:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.level-card:has(input:focus-visible) { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+.level-name { font-size: 16px; font-weight: 640; }
+.level-rating { font-size: 13px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
+.level-note { font-size: 12.5px; line-height: 1.35; color: var(--muted); }
+
+.segmented {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  padding: 4px;
+  gap: 4px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.segmented label { position: relative; cursor: pointer; }
+.segmented input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.segmented span {
+  display: block;
+  text-align: center;
+  padding: 9px 10px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 560;
+  color: var(--muted);
+  transition: background 140ms ease, color 140ms ease;
+}
+.segmented label:hover span { color: var(--ink); }
+.segmented input:checked + span {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25), 0 0 0 1px var(--line);
+}
+.segmented input:focus-visible + span { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+
+.sheet-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+.sheet-actions .primary { min-width: 120px; }
+
+.game-panel { display: grid; gap: 10px; }
+/* On the board a black piece sits on a light square; on a dark card it would
+   vanish into the card, so off the board it gets a lighter edge. */
+.player-token .chess-piece.black { stroke: color-mix(in srgb, var(--ink) 60%, transparent); }

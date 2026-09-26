@@ -17,6 +17,8 @@ import { LADDER, type LadderEntry } from "./games/ladder";
 import type { Game } from "./games/types";
 import { VIEWS, type View } from "./ui/views";
 import { iconFor } from "./ui/icons";
+import { playerCardHtml, tokenFor, type PlayerCard } from "./ui/players";
+import { approximately, readSettings, resolveSeat, sheetHtml, type Rating, type Settings } from "./ui/sheet";
 import type { FromEngine, ToEngine } from "./engine/protocol";
 import { networksByGame, type ModelEntry, type Network } from "./models";
 import { LEVELS, DEFAULT_LEVEL } from "./levels";
@@ -49,6 +51,12 @@ let report: Extract<FromEngine, { kind: "move" }> | null = null;
 let pending: number | null = null;
 let error: string | null = null;
 let showDetails = false;
+/** What the new-game sheet last chose, per visit; Random stays Random. */
+let settings: Settings = { level: DEFAULT_LEVEL, seat: "first", network: null };
+let sheetOpen = false;
+let sheetCancellable = false;
+/** Measured ratings per level, for the games that have them. */
+let ratings = new Map<string, Map<string, Rating>>();
 try {
   showDetails = localStorage.getItem(DETAILS_KEY) === "1";
 } catch {
@@ -166,7 +174,7 @@ function play(action: number): void {
  * after a beat - long enough that the turn does not appear to have been skipped.
  */
 function advance(): void {
-  if (!ready || thinking || finished() || route.name !== "play") return;
+  if (!ready || thinking || finished() || route.name !== "play" || sheetOpen) return;
 
   if (humanToMove()) {
     if (mustPass()) {
@@ -213,9 +221,10 @@ function applyRoute(): void {
       report = null;
       pending = null;
       thinking = false;
-      renderNetworks();
+      settings = { ...settings, network: network?.file ?? null };
       render();
       loadEngine();
+      openSheet(false);
       return;
     }
   } else {
@@ -246,39 +255,21 @@ app.innerHTML = `
 
     <section class="screen" id="play" hidden>
       <div class="play-head">
-        <a class="back" href="#/">
+        <a class="back" href="#/" aria-label="All games" title="All games">
           <svg viewBox="0 0 24 24" aria-hidden="true" class="chevron"><path d="M15 5l-7 7 7 7"/></svg>
-          All games
         </a>
         <h1 class="play-title" id="play-title"></h1>
-        <p class="play-rule" id="play-rule"></p>
       </div>
       <div class="layout">
         <div class="stage">
+          <div id="opponent"></div>
           <div class="board" id="board"></div>
+          <div id="you"></div>
           <div class="status" id="status"></div>
         </div>
         <aside class="side">
-          <section class="panel">
-            <div class="field">
-              <label for="level">Opponent</label>
-              <select id="level">
-                ${LEVELS.map(
-                  (l, i) =>
-                    `<option value="${l.simulations}"${i === DEFAULT_LEVEL ? " selected" : ""}>${l.label}</option>`,
-                ).join("")}
-              </select>
-            </div>
-            <p class="field-note" id="level-note">${LEVELS[DEFAULT_LEVEL].note}</p>
-            <div class="field">
-              <label for="first">You play</label>
-              <select id="first"><option value="1" selected>First</option><option value="0">Second</option></select>
-            </div>
-            <div class="field" id="network-field" hidden>
-              <label for="network">Network</label>
-              <select id="network"></select>
-            </div>
-            <button class="action" id="new">New game</button>
+          <section class="panel game-panel">
+            <button class="button primary wide" id="new">New game</button>
           </section>
           <div class="details">
             <button class="quiet-link toggle" id="details-toggle" aria-expanded="false">
@@ -289,6 +280,7 @@ app.innerHTML = `
           </div>
         </aside>
       </div>
+      <div class="sheet-backdrop" id="sheet" hidden></div>
     </section>
 
     <section class="screen" id="about" hidden></section>
@@ -308,13 +300,10 @@ const analysisEl = document.getElementById("analysis")!;
 const notesEl = document.getElementById("notes")!;
 const detailsEl = document.querySelector<HTMLElement>(".details")!;
 const detailsToggle = document.getElementById("details-toggle") as HTMLButtonElement;
-const seatEl = document.getElementById("first") as HTMLSelectElement;
-const levelEl = document.getElementById("level") as HTMLSelectElement;
-const levelNoteEl = document.getElementById("level-note")!;
-const networkField = document.getElementById("network-field")!;
-const networkEl = document.getElementById("network") as HTMLSelectElement;
+const opponentEl = document.getElementById("opponent")!;
+const youEl = document.getElementById("you")!;
+const sheetEl = document.getElementById("sheet")!;
 const playTitleEl = document.getElementById("play-title")!;
-const playRuleEl = document.getElementById("play-rule")!;
 const aboutEl = document.getElementById("about")!;
 const screens: Record<string, HTMLElement> = {
   gallery: document.getElementById("gallery")!,
@@ -338,15 +327,21 @@ boardEl.addEventListener("click", (event) => {
     render();
   }
 });
-document.getElementById("new")!.addEventListener("click", reset);
-levelEl.addEventListener("change", () => {
-  simulations = Number(levelEl.value);
-  levelNoteEl.textContent =
-    LEVELS.find((l) => l.simulations === simulations)?.note ?? "";
+document.getElementById("new")!.addEventListener("click", () => openSheet(true));
+sheetEl.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = event.target as HTMLFormElement;
+  const chosen = readSettings(new FormData(form), settings);
+  closeSheet();
+  startGame(chosen);
 });
-seatEl.addEventListener("change", (e) => {
-  humanFirst = (e.target as HTMLSelectElement).value === "1";
-  reset();
+sheetEl.addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  // The backdrop itself, or the Cancel button - not a click inside the sheet.
+  if (target === sheetEl || target.closest("[data-sheet='cancel']")) closeSheet();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && sheetOpen) closeSheet();
 });
 detailsToggle.addEventListener("click", () => {
   showDetails = !showDetails;
@@ -357,26 +352,75 @@ detailsToggle.addEventListener("click", () => {
   }
   render();
 });
-networkEl.addEventListener("change", () => {
-  const chosen = networks.get(entry.key)?.find((n) => n.file === networkEl.value);
-  if (!chosen || chosen.file === network?.file) return;
-  // A different opponent is a different game: start again against it.
-  network = chosen;
-  moves = [];
-  report = null;
-  pending = null;
-  thinking = false;
-  loadEngine();
-});
 window.addEventListener("hashchange", applyRoute);
 
-/** The choice of network, offered only when the game has more than one. */
-function renderNetworks(): void {
-  const choices = networks.get(entry.key) ?? [];
-  networkField.hidden = choices.length < 2;
-  networkEl.innerHTML = choices
-    .map((n) => `<option value="${n.file}"${n.file === network?.file ? " selected" : ""}>${n.label}</option>`)
-    .join("");
+/**
+ * Open the new-game sheet over the board.
+ *
+ * Rendered here and not in render(): render runs on every engine message, and
+ * re-rendering the form would throw away a choice the player is halfway through.
+ */
+function openSheet(cancellable: boolean): void {
+  sheetCancellable = cancellable;
+  drawSheet(settings);
+  sheetOpen = true;
+  sheetEl.hidden = false;
+  // Everything behind the sheet stops taking focus and clicks until it closes.
+  for (const element of document.querySelectorAll<HTMLElement>(".play-head, .layout")) {
+    element.inert = true;
+  }
+  sheetEl.querySelector<HTMLButtonElement>("button[type=submit]")?.focus();
+}
+
+function drawSheet(chosen: Settings): void {
+  sheetEl.innerHTML = sheetHtml({
+    entry,
+    settings: chosen,
+    networks: (networks.get(entry.key) ?? []).map((n) => ({ file: n.file, label: n.label })),
+    ratings: ratings.get(entry.key),
+    cancellable: sheetCancellable,
+  });
+}
+
+/**
+ * Redraw an open sheet - when ratings arrive after it opened, say - keeping
+ * whatever the player has already picked in it rather than the saved settings.
+ */
+function refreshSheet(): void {
+  const form = sheetEl.querySelector<HTMLFormElement>("form");
+  if (!sheetOpen || !form) return;
+  const focused = document.activeElement === sheetEl.querySelector("button[type=submit]");
+  drawSheet(readSettings(new FormData(form), settings));
+  if (focused) sheetEl.querySelector<HTMLButtonElement>("button[type=submit]")?.focus();
+}
+
+function closeSheet(): void {
+  sheetOpen = false;
+  sheetEl.hidden = true;
+  for (const element of document.querySelectorAll<HTMLElement>(".play-head, .layout")) {
+    element.inert = false;
+  }
+  // Closing without choosing still starts the game that was waiting.
+  render();
+  advance();
+}
+
+function startGame(chosen: Settings): void {
+  settings = chosen;
+  simulations = LEVELS[settings.level].simulations;
+  humanFirst = resolveSeat(settings.seat);
+  const next = networks.get(entry.key)?.find((n) => n.file === settings.network);
+  if (next && next.file !== network?.file) {
+    // A different network is a different opponent: load it, then play.
+    network = next;
+    moves = [];
+    report = null;
+    pending = null;
+    thinking = false;
+    loadEngine();
+    return;
+  }
+  reset();
 }
 
 function context() {
@@ -543,6 +587,26 @@ function renderAbout(): void {
         The chess opponent you can play is the imitation network, so it plays a bit
         like the people it learned from.
       </p>
+      <h3 class="prose-sub">How strong is it?</h3>
+      <p>
+        Each level played Stockfish, the strongest open-source engine, told to play
+        at a chosen strength: 1320 up to 2500, both colours, 24 games at every step
+        (${code("scripts/stockfish.py", "stockfish.py")}). One rating per level is then
+        fitted to all of its results at once, the rating that makes those scores most
+        likely (${code("src/caissa/rating.py", "rating.py")}).
+      </p>
+      ${chessRatingsTable()}
+      <p>
+        Two honest caveats. Stockfish's strength setting is calibrated against other
+        engines rather than people, so these sit on roughly the FIDE scale rather
+        than on it. And the step from Strong to Master is worth about 100 points
+        here, where the same two levels played against each other showed nearly
+        400. The same network at two depths shares its blind spots, so the deeper
+        search knows exactly where its twin will go wrong; an outside opponent does
+        not make those tailored mistakes. Ratings measured inside one family of
+        players stretch the gaps between them, which is why these came from
+        outside it.
+      </p>
       <p>
         One smaller difference worth naming: <strong>Gomoku</strong> was trained
         with a restriction, where stones could only be played next to existing
@@ -589,6 +653,23 @@ function renderAbout(): void {
       </p>
     </div>
   `;
+}
+
+/** The chess levels' measured ratings, as a table, once they have loaded. */
+function chessRatingsTable(): string {
+  const measured = ratings.get("chess");
+  if (!measured?.size) return "";
+  const rows = LEVELS.map((level) => {
+    const rating = measured.get(level.label);
+    return rating
+      ? `<tr><td>${level.label}</td><td class="gain">about ${approximately(rating.rating)}</td>
+         <td>${rating.low}–${rating.high}</td></tr>`
+      : "";
+  }).join("");
+  return `<table class="levels">
+    <thead><tr><th>Level</th><th>Rating</th><th>95% range</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 /** The measured ladder, fetched once and only when the page asks for it. */
@@ -650,11 +731,11 @@ function render(): void {
 
   document.body.dataset.game = entry.key;
   const ctx = context();
-  const [first, second] = entry.seats ?? ["First", "Second"];
-  seatEl.options[0].text = first;
-  seatEl.options[1].text = second;
   playTitleEl.innerHTML = `<span class="play-icon">${iconFor(entry.key)}</span>${entry.title}`;
-  playRuleEl.textContent = entry.howToWin;
+
+  const [engine, you] = playerCards();
+  opponentEl.innerHTML = playerCardHtml(engine, tokenFor(entry.key, "engine", !humanFirst));
+  youEl.innerHTML = playerCardHtml(you, tokenFor(entry.key, "you", humanFirst));
 
   boardEl.className = `board ${view.layout}${ctx.locked ? " locked" : ""}`;
   boardEl.innerHTML = view.board(ctx);
@@ -672,34 +753,71 @@ function render(): void {
   }
 }
 
+/**
+ * The two players, as the cards above and below the board show them.
+ *
+ * Whose turn it is lives here now, on the card of the side to move, rather than
+ * in a sentence under the board; the status line keeps what needs a sentence.
+ */
+function playerCards(): [PlayerCard, PlayerCard] {
+  const level = LEVELS[settings.level];
+  const rating = ratings.get(entry.key)?.get(level.label);
+  const outcome = ready ? game.terminalValue(state()) : null;
+  const over = outcome !== null;
+  const humanWon = over && outcome !== 0 && (outcome > 0) === humanToMove();
+  const engineWon = over && outcome !== 0 && !humanWon;
+  const yourTurn = ready && !over && humanToMove();
+
+  const [first, second] = entry.seats ?? ["", ""];
+  const yourSide = entry.seats
+    ? (humanFirst ? first : second)
+    : (humanFirst ? "Moving first" : "Moving second");
+
+  return [
+    {
+      side: "engine",
+      name: `Caissa <span class="player-level">${level.label}</span>`,
+      detail: rating ? `Rated about ${approximately(rating.rating)}` : level.note,
+      status: thinking ? "Thinking…" : "",
+      active: ready && !over && !humanToMove(),
+      winner: engineWon,
+    },
+    {
+      side: "you",
+      name: "You",
+      detail: yourSide,
+      status: yourTurn && pending === null ? "Your move" : "",
+      active: yourTurn,
+      winner: humanWon,
+    },
+  ];
+}
+
+/** What needs a sentence: the result, a prompt, a pass, a bonus move, a problem. */
 function statusText(): string {
-  if (error) return `<span class="muted">Could not load the engine: ${error}</span>`;
+  if (error) return `<span class="muted">The engine didn't load: ${error}</span>`;
   if (!ready) return `<span class="muted">Loading ${entry.title}…</span>`;
 
   const outcome = game.terminalValue(state());
   if (outcome !== null) {
-    if (outcome === 0) return "Drawn.";
+    if (outcome === 0) return `<span class="result">Drawn.</span>`;
     // terminalValue is for the player to move: +1 means they are ahead.
     const humanWon = outcome > 0 === humanToMove();
     return humanWon
-      ? `<span class="dot you"></span> You win.`
-      : `<span class="dot engine"></span> The engine wins.`;
+      ? `<span class="result">You win.</span>`
+      : `<span class="result">Caissa wins.</span>`;
   }
-  if (thinking) {
-    return lastMoveKeptTurn()
-      ? `<span class="muted">The engine closed a box and moves again…</span>`
-      : `<span class="muted">Thinking…</span>`;
+  if (thinking && lastMoveKeptTurn()) {
+    return `<span class="muted">Caissa closed a box and moves again.</span>`;
   }
-  if (humanToMove() && mustPass()) return `<span class="muted">No legal move — passing.</span>`;
+  if (humanToMove() && mustPass()) return `<span class="muted">No legal move, so you pass.</span>`;
   if (humanToMove() && pending !== null) {
-    return `<span class="dot you"></span> ${view.prompt?.(context()) ?? "Now finish the move."}`;
+    return `<span>${view.prompt?.(context()) ?? "Now finish the move."}</span>`;
   }
   if (humanToMove() && lastMoveKeptTurn()) {
-    return `<span class="dot you"></span> Box closed — your move again.`;
+    return `<span>Box closed, so it's your move again.</span>`;
   }
-  return humanToMove()
-    ? `<span class="dot you"></span> Your move.`
-    : `<span class="dot engine"></span> Engine to move.`;
+  return "";
 }
 
 function analysisPanel(): string {
@@ -743,14 +861,35 @@ async function start(): Promise<void> {
   network = networks.get(entry.key)?.[0] ?? null;
   game = createGame(entry.key);
   view = VIEWS[entry.key];
-  renderNetworks();
+  settings = { ...settings, network: network?.file ?? null };
+  void loadRatings();
   render();
   if (requested.name === "play") {
     route = { name: "play", key: entry.key };
     render();
     loadEngine();
+    openSheet(false);
   } else {
     applyRoute();
+  }
+}
+
+/**
+ * Measured ratings, where they exist. Optional: without the file the level
+ * cards simply say less, and nothing waits for it.
+ */
+async function loadRatings(): Promise<void> {
+  try {
+    const data: { levels: { label: string; rating: number; low: number; high: number }[] } =
+      await fetch(asset("ratings.json")).then((r) => r.json());
+    ratings = new Map([
+      ["chess", new Map(data.levels.map((l) => [l.label, { rating: l.rating, low: l.low, high: l.high }]))],
+    ]);
+    // Both the play screen and the guide show them; the gallery does not.
+    if (route.name !== "gallery") render();
+    refreshSheet();
+  } catch {
+    ratings = new Map();
   }
 }
 
