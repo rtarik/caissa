@@ -1224,3 +1224,59 @@ body[data-game="chess"] {
 /* Looking back: the board is a picture of the past, and says so. */
 .board.looking-back { box-shadow: var(--shadow), 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent); }
 .status .quiet-link { font-size: 14px; color: var(--accent); }
+
+/* ------------------------------------------------------- chess, and history */
+
+.button.small { font-size: 13.5px; padding: 7px 10px; border-radius: 9px; }
+.chess-actions { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.chess-actions[hidden] { display: none; }
+.export-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.chess-footer { display: flex; align-items: center; justify-content: space-between; }
+.chess-footer .button { display: inline-flex; align-items: center; gap: 6px; }
+.chess-footer .quiet-link { font-size: 14px; }
+
+.games-note { color: var(--muted); font-size: 15px; max-width: 62ch; margin: 0 0 18px; }
+.games-empty { color: var(--muted); font-size: 15px; padding: 28px 0; }
+.games-actions { display: flex; gap: 8px; margin-bottom: 14px; }
+.game-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.game-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.game-main { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.game-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-weight: 600; font-size: 16px; }
+.game-meta { color: var(--muted); font-size: 14px; }
+.verdict {
+  font-size: 12.5px;
+  font-weight: 650;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--muted);
+}
+.verdict.won { background: color-mix(in srgb, #3fb37f 20%, transparent); color: #58c793; }
+.verdict.lost { background: color-mix(in srgb, #e0603a 18%, transparent); color: #ee8a6a; }
+.verdict.drawn { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+@media (prefers-color-scheme: light) {
+  .verdict.won { color: #1f7a50; }
+  .verdict.lost { color: #b24422; }
+}
+.game-moves summary { cursor: pointer; color: var(--muted); font-size: 13.5px; width: fit-content; }
+.game-moves summary:hover { color: var(--ink); }
+.game-moves p {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+  word-spacing: 2px;
+}
+.game-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 640px) {
+  .game-row { flex-wrap: wrap; }
+  .game-actions { width: 100%; justify-content: flex-start; }
+}

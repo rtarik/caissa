@@ -19,6 +19,10 @@ import { VIEWS, type View } from "./ui/views";
 import { iconFor } from "./ui/icons";
 import { moveLabel } from "./ui/notation";
 import { rowsOf, undoTarget, type Ply } from "./moves";
+import { browserStore, clearGames, deleteGame, loadGames, newGameId, saveGame, type GameRecord } from "./archive";
+import { chessOutcome, collectionPgn, engineName, movesText, pgnFileName, recordPgn } from "./pgn";
+import { pieceSvg } from "./ui/pieces";
+import type { ChessState } from "./games/chess";
 import { playerCardHtml, tokenFor, type PlayerCard } from "./ui/players";
 import { approximately, readSettings, resolveSeat, sheetHtml, type Rating, type Settings } from "./ui/sheet";
 import type { FromEngine, ToEngine } from "./engine/protocol";
@@ -64,6 +68,14 @@ let sheetCancellable = false;
 let viewing: number | null = null;
 /** The number of the latest engine request; answers to any other are stale. */
 let requestId = 0;
+/**
+ * The chess game in progress as the history knows it: an id once there is
+ * something worth keeping, when it began, and whether you resigned it.
+ */
+let gameId: string | null = null;
+let startedAt: string | null = null;
+let resigned = false;
+const store = browserStore();
 /** Measured ratings, per network file and then per level, where there are any. */
 let ratings = new Map<string, Map<string, Rating>>();
 try {
@@ -99,6 +111,7 @@ worker.onmessage = (event: MessageEvent<FromEngine>) => {
     thinking = false;
     report = message;
     moves = [...moves, message.action];
+    saveCurrent();
     render();
     advance();
   } else {
@@ -170,7 +183,7 @@ const humanSeat = () => (humanFirst ? 0 : 1);
 // Asked of the game rather than counted from the move list: after a Dots & Boxes
 // bonus move the same player is to move again, and parity would say otherwise.
 const humanToMove = () => game.toPlay(state()) === humanSeat();
-const finished = () => game.terminalValue(state()) !== null;
+const finished = () => resigned || game.terminalValue(state()) !== null;
 
 /**
  * True when the mover's only legal action is the game's pass.
@@ -200,6 +213,7 @@ function play(action: number): void {
   report = null;
   pending = null;
   moves = [...moves, action];
+  saveCurrent();
   render();
   advance();
 }
@@ -235,6 +249,9 @@ function advance(): void {
 function reset(): void {
   cancelSearch();
   moves = [];
+  gameId = null;
+  startedAt = null;
+  resigned = false;
   viewing = null;
   report = null;
   pending = null;
@@ -248,11 +265,129 @@ function undo(): void {
   if (target === null) return;
   cancelSearch();
   moves = moves.slice(0, target);
+  resigned = false;
   viewing = null;
   report = null;
   pending = null;
+  saveCurrent();
   render();
   advance();
+}
+
+/** Hand the browser a file to save. Nothing is sent anywhere: the file is made here. */
+function download(name: string, text: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: "application/x-chess-pgn" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Copy to the clipboard, saying on the button whether it worked. */
+async function copyText(text: string, button: HTMLButtonElement): Promise<void> {
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    copied = true;
+  } catch {
+    // The clipboard API needs a secure context and permission; the old way does not.
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    try {
+      copied = document.execCommand("copy");
+    } catch {
+      copied = false;
+    }
+    area.remove();
+  }
+  flash(button, copied ? "Copied" : "Couldn't copy");
+}
+
+/** Show a word on a button for a moment, then put its label back. */
+function flash(button: HTMLButtonElement, word: string): void {
+  const label = button.dataset.label ?? button.textContent ?? "";
+  button.dataset.label = label;
+  button.textContent = word;
+  window.setTimeout(() => {
+    button.textContent = label;
+  }, 1400);
+}
+
+/**
+ * Clearing the whole history takes two clicks: the first arms the button, the
+ * second, within a few seconds, clears. A single stray click costs nothing.
+ */
+let clearArmed = 0;
+function armOrClear(button: HTMLButtonElement): void {
+  if (Date.now() - clearArmed < 4000) {
+    clearGames(store);
+    clearArmed = 0;
+    renderGames();
+    return;
+  }
+  clearArmed = Date.now();
+  button.textContent = "Click again to clear";
+  window.setTimeout(() => {
+    if (Date.now() - clearArmed >= 4000) button.textContent = "Clear history";
+  }, 4000);
+}
+
+/** Resign the chess game: it ends here, as a loss, and is saved that way. */
+function resign(): void {
+  if (entry.key !== "chess" || finished() || !ready) return;
+  cancelSearch();
+  resigned = true;
+  viewing = null;
+  pending = null;
+  saveCurrent();
+  render();
+}
+
+/**
+ * The current chess game as a record, or null while there is nothing of yours
+ * in it yet - a game the engine opened and you never answered is not kept.
+ */
+function currentRecord(): GameRecord | null {
+  if (entry.key !== "chess" || moves.length === 0 || !yourMoveMade()) return null;
+  gameId ??= newGameId();
+  startedAt ??= new Date().toISOString();
+  const level = LEVELS[settings.level];
+  const outcome = chessOutcome(state() as ChessState, humanFirst, resigned);
+  return {
+    id: gameId,
+    game: "chess",
+    started: startedAt,
+    updated: new Date().toISOString(),
+    moves,
+    humanWhite: humanFirst,
+    level: level.label,
+    simulations: level.simulations,
+    network: network?.file ?? entry.key,
+    networkLabel: network?.label ?? "",
+    rating: ratings.get(network?.file ?? "")?.get(level.label)?.rating,
+    result: outcome.result,
+    termination: outcome.termination,
+  };
+}
+
+/**
+ * Keep the history in step with the game; storage failing never stops play.
+ *
+ * Undo can rewind a game past your first move, leaving nothing of yours in it.
+ * The record then goes too: left behind, it would still say "resigned" about a
+ * game that has been taken back to its first position.
+ */
+function saveCurrent(): void {
+  const record = currentRecord();
+  if (record) saveGame(store, record);
+  else if (gameId && entry.key === "chess") deleteGame(store, gameId);
 }
 
 function undoPoint(): number | null {
@@ -297,7 +432,8 @@ function applyRoute(): void {
       return;
     }
   } else {
-    document.title = route.name === "about" ? "Caissa — How it works" : "Caissa";
+    document.title = route.name === "about" ? "Caissa — How it works"
+      : route.name === "games" ? "Caissa — Your games" : "Caissa";
   }
   render();
 }
@@ -364,6 +500,19 @@ app.innerHTML = `
               </button>
               <button class="button primary" id="new">New game</button>
             </div>
+            <div class="chess-actions" id="chess-actions" hidden>
+              <div class="export-row">
+                <button class="button small" id="copy-pgn">Copy PGN</button>
+                <button class="button small" id="download-pgn">Download PGN</button>
+              </div>
+              <div class="chess-footer">
+                <button class="button small ghost" id="resign">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4m0 0h11l-2 4 2 4H5"/></svg>
+                  Resign
+                </button>
+                <a class="quiet-link" id="games-link" href="#/games/chess">Your games</a>
+              </div>
+            </div>
           </section>
           <div class="details">
             <button class="quiet-link toggle" id="details-toggle" aria-expanded="false">
@@ -376,6 +525,8 @@ app.innerHTML = `
       </div>
       <div class="sheet-backdrop" id="sheet" hidden></div>
     </section>
+
+    <section class="screen" id="games" hidden></section>
 
     <section class="screen" id="about" hidden></section>
   </main>
@@ -403,9 +554,16 @@ const youEl = document.getElementById("you")!;
 const sheetEl = document.getElementById("sheet")!;
 const playTitleEl = document.getElementById("play-title")!;
 const aboutEl = document.getElementById("about")!;
+const gamesEl = document.getElementById("games")!;
+const chessActionsEl = document.getElementById("chess-actions")!;
+const resignEl = document.getElementById("resign") as HTMLButtonElement;
+const copyEl = document.getElementById("copy-pgn") as HTMLButtonElement;
+const downloadEl = document.getElementById("download-pgn") as HTMLButtonElement;
+const gamesLinkEl = document.getElementById("games-link")!;
 const screens: Record<string, HTMLElement> = {
   gallery: document.getElementById("gallery")!,
   play: document.getElementById("play")!,
+  games: gamesEl,
   about: aboutEl,
 };
 
@@ -427,6 +585,32 @@ boardEl.addEventListener("click", (event) => {
 });
 document.getElementById("new")!.addEventListener("click", () => openSheet(true));
 undoEl.addEventListener("click", undo);
+resignEl.addEventListener("click", resign);
+copyEl.addEventListener("click", () => {
+  const record = currentRecord();
+  if (record) void copyText(recordPgn(record), copyEl);
+});
+downloadEl.addEventListener("click", () => {
+  const record = currentRecord();
+  if (record) download(pgnFileName(record), recordPgn(record));
+});
+gamesEl.addEventListener("click", (event) => {
+  const target = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-games], button[data-game-action]");
+  if (!target) return;
+  const all = loadGames(store).filter((record) => record.game === "chess");
+  const action = target.dataset.games ?? target.dataset.gameAction;
+  const record = all.find((game) => game.id === target.closest<HTMLElement>("[data-id]")?.dataset.id);
+
+  if (action === "all" && all.length) download("caissa-games.pgn", collectionPgn(all));
+  else if (action === "clear") armOrClear(target);
+  else if (record && action === "copy") void copyText(recordPgn(record), target);
+  else if (record && action === "download") download(pgnFileName(record), recordPgn(record));
+  else if (record && action === "delete") {
+    deleteGame(store, record.id);
+    if (record.id === gameId) gameId = null;
+    renderGames();
+  }
+});
 statusEl.addEventListener("click", (event) => {
   if ((event.target as HTMLElement).closest("[data-nav-inline]")) showPly(moves.length);
 });
@@ -806,6 +990,69 @@ function renderAbout(): void {
   `;
 }
 
+/** Your saved chess games, newest first, each with a way out to other tools. */
+function renderGames(): void {
+  const games = loadGames(store).filter((record) => record.game === "chess");
+  const when = (iso: string) => {
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? "" : date.toLocaleString(undefined, {
+      day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  };
+  const verdict = (record: GameRecord) => {
+    if (record.result === "*") return ["unfinished", "Unfinished"];
+    if (record.result === "1/2-1/2") return ["drawn", "Drawn"];
+    const youWon = (record.result === "1-0") === record.humanWhite;
+    return youWon ? ["won", "Won"] : ["lost", "Lost"];
+  };
+
+  const rows = games.map((record) => {
+    const [tone, word] = verdict(record);
+    const plies = record.moves.length;
+    const details = [
+      when(record.started),
+      `${Math.ceil(plies / 2)} ${plies > 2 ? "moves" : "move"}`,
+      record.termination,
+    ].filter(Boolean).join(" · ");
+    return `<li class="game-row" data-id="${record.id}">
+      <span class="player-token piece">${pieceSvg("k", record.humanWhite ? "w" : "b")}</span>
+      <div class="game-main">
+        <div class="game-title">
+          <span>You vs ${engineName(record)}</span>
+          <span class="verdict ${tone}">${word}</span>
+        </div>
+        <div class="game-meta">${details}</div>
+        <details class="game-moves"><summary>Moves</summary><p>${movesText(record)}</p></details>
+      </div>
+      <div class="game-actions">
+        <button class="button small" data-game-action="copy">Copy PGN</button>
+        <button class="button small" data-game-action="download">Download</button>
+        <button class="button small ghost" data-game-action="delete">Delete</button>
+      </div>
+    </li>`;
+  }).join("");
+
+  gamesEl.innerHTML = `
+    <div class="play-head">
+      <a class="back" href="#/play/chess" aria-label="Back to chess" title="Back to chess">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="chevron"><path d="M15 5l-7 7 7 7"/></svg>
+      </a>
+      <h1 class="play-title"><span class="play-icon">${iconFor("chess")}</span>Your chess games</h1>
+    </div>
+    <p class="games-note">
+      Kept in this browser only. Download a game to open it in any analysis tool;
+      every game here is saved as it is played, so unfinished ones are here too.
+    </p>
+    ${games.length ? `
+      <div class="games-actions">
+        <button class="button" data-games="all">Download all (${games.length})</button>
+        <button class="button ghost" data-games="clear">Clear history</button>
+      </div>
+      <ol class="game-list">${rows}</ol>`
+    : `<p class="games-empty">No games yet. Play a game of chess and it will appear here.</p>`}
+  `;
+}
+
 /** The chess levels' measured ratings, as a table, once they have loaded. */
 function chessRatingsTable(): string {
   const chessNetworks = networks.get("chess") ?? [];
@@ -882,6 +1129,11 @@ function render(): void {
     void fillLevels();
     return;
   }
+  if (route.name === "games") {
+    document.body.dataset.game = route.key;
+    renderGames();
+    return;
+  }
 
   document.body.dataset.game = entry.key;
   const ctx = context();
@@ -918,9 +1170,9 @@ function playerCards(): [PlayerCard, PlayerCard] {
   const level = LEVELS[settings.level];
   const rating = ratings.get(network?.file ?? "")?.get(level.label);
   const outcome = ready ? game.terminalValue(state()) : null;
-  const over = outcome !== null;
-  const humanWon = over && outcome !== 0 && (outcome > 0) === humanToMove();
-  const engineWon = over && outcome !== 0 && !humanWon;
+  const over = resigned || outcome !== null;
+  const humanWon = !resigned && over && outcome !== 0 && (outcome! > 0) === humanToMove();
+  const engineWon = resigned || (over && outcome !== 0 && !humanWon);
   const yourTurn = ready && !over && humanToMove();
 
   const [first, second] = entry.seats ?? ["", ""];
@@ -991,6 +1243,22 @@ function renderMoves(): void {
     button.disabled = nav === "first" || nav === "back" ? at === 0 : at === moves.length;
   }
   undoEl.disabled = undoPoint() === null;
+
+  chessActionsEl.hidden = entry.key !== "chess";
+  if (entry.key === "chess") {
+    const exportable = moves.length > 0 && yourMoveMade();
+    resignEl.disabled = !ready || finished() || moves.length === 0;
+    copyEl.disabled = !exportable;
+    downloadEl.disabled = !exportable;
+    const saved = loadGames(store).filter((record) => record.game === "chess").length;
+    gamesLinkEl.textContent = saved ? `Your games (${saved})` : "Your games";
+  }
+}
+
+/** Whether you have played a move in this game yet: before that there is nothing to keep. */
+function yourMoveMade(): boolean {
+  const { states } = positions();
+  return moves.some((_, index) => game.toPlay(states[index]) === humanSeat());
 }
 
 /** What needs a sentence: the result, a prompt, a pass, a bonus move, a problem. */
@@ -1002,9 +1270,13 @@ function statusText(): string {
       <button class="quiet-link" data-nav-inline="last">Back to the game</button>`;
   }
 
+  if (resigned) return `<span class="result">You resigned.</span>`;
   const outcome = game.terminalValue(state());
   if (outcome !== null) {
-    if (outcome === 0) return `<span class="result">Drawn.</span>`;
+    if (outcome === 0) {
+      const why = entry.key === "chess" ? chessOutcome(state() as ChessState, humanFirst, false).termination : "";
+      return `<span class="result">Drawn${why ? ` by ${why}` : ""}.</span>`;
+    }
     // terminalValue is for the player to move: +1 means they are ahead.
     const humanWon = outcome > 0 === humanToMove();
     return humanWon

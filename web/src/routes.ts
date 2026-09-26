@@ -10,12 +10,14 @@ import { LADDER } from "./games/ladder";
 export type Route =
   | { name: "gallery" }
   | { name: "play"; key: string }
+  | { name: "games"; key: string }
   | { name: "about" };
 
 /** The link that reaches a screen. */
 export function href(route: Route): string {
   if (route.name === "about") return "#/how-it-works";
   if (route.name === "play") return `#/play/${route.key}`;
+  if (route.name === "games") return `#/games/${route.key}`;
   return "#/";
 }
 
@@ -28,9 +30,10 @@ export function href(route: Route): string {
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#\/?/, "");
   if (path === "how-it-works") return { name: "about" };
-  if (path.startsWith("play/")) {
-    const key = path.slice("play/".length);
-    if (LADDER.some((item) => item.key === key)) return { name: "play", key };
+  for (const name of ["play", "games"] as const) {
+    if (!path.startsWith(`${name}/`)) continue;
+    const key = path.slice(name.length + 1);
+    if (LADDER.some((item) => item.key === key)) return { name, key };
   }
   return { name: "gallery" };
 }

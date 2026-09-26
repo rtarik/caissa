@@ -927,7 +927,7 @@ can set up, openings that vary.
 |---|---|---|
 | 11.1 | **Done.** The new play screen: larger type, player cards above and below the board, a new-game sheet with level cards and segmented choices in place of the settings form | all games |
 | 11.2 | **Done.** Move list, stepping back and forth through the game, undo - with stale engine answers discarded | all games |
-| 11.3 | PGN export and a history of finished games kept in the browser | chess |
+| 11.3 | **Done.** PGN export and a history of games kept in the browser | chess |
 | 11.4 | Board editor and FEN; the engine accepts a starting position | chess |
 | 11.5 | Varied openings from a book of our own 2200+ games, and opening names | chess |
 | 11.6 | **First measurement done** (results below). To do after 11.5: measure again with varied openings, and for *both* chess networks - the untrained one needs `--name chess` and will likely sit below Stockfish's 1320 floor, which the fit reports as a bound. A rough rating for each level against Stockfish at known strengths, shown on the level cards | chess |
@@ -1360,6 +1360,27 @@ move never replays a chess game from the start. The list's layout groups a side'
 moves into one turn, so a Dots & Boxes chain stays in one cell and the two columns still mean
 something; a mutation that the tests could not catch turned out to guard an impossible case
 (turns alternate by construction), and the guard was removed rather than kept untestable.
+
+**11.3, as built.** Every chess game is saved as it is played, once it has a move of yours in
+it - so a reload loses nothing and an unfinished game can still be exported. Stored as the
+engine's own move numbers plus what the game was (sides, level, network, the rating shown),
+not as PGN: the record is the fact, and PGN is one way of writing it out, regenerated on
+demand. Saving on every move is safe because a save *replaces* the game's earlier save rather
+than adding one. PGN is written by chess.js, which already knows the format's rules - tag order,
+numbering, the SetUp and FEN tags a set-up position needs for 11.4 - and every export is read
+back by chess.js's own PGN reader in the tests and compared move for move. Why a game ended is
+worked out with the same conditions, in the same order, as the rules' `terminalValue`, so the
+file cannot call a game drawn by repetition that the board thought was still going.
+
+Resign arrived with it, so a lost game can be finished rather than abandoned. The page it all
+lands on, `#/games/chess`, lists the games with how each ended, their moves, and copy /
+download / delete, plus the whole history as one file; clearing it takes two clicks.
+
+Found by playing it: undo back past your *only* move emptied the game, there was then no
+record to write, and the history kept "resigned" for a game rewound to its first position. A
+game with nothing of yours left in it now takes its record with it. And a Copy button tested by
+a script reported failure, correctly - browsers only let a page write the clipboard during a
+real click, which is what a real click then confirmed.
 
 **A bug the owner spotted within minutes.** The first version keyed ratings by *game*, so
 switching the chess engine to the untrained network kept showing "about 2300" - a rating measured

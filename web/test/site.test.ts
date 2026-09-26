@@ -19,6 +19,7 @@ describe("routes", () => {
   it("reads a game out of the hash", () => {
     expect(parseRoute("#/play/gomoku")).toEqual({ name: "play", key: "gomoku" });
     expect(parseRoute("#/how-it-works")).toEqual({ name: "about" });
+    expect(parseRoute("#/games/chess")).toEqual({ name: "games", key: "chess" });
     expect(parseRoute("#/")).toEqual({ name: "gallery" });
     expect(parseRoute("")).toEqual({ name: "gallery" });
   });
@@ -27,6 +28,7 @@ describe("routes", () => {
     // A stale bookmark or a renamed game lands somewhere that works.
     expect(parseRoute("#/play/backgammon")).toEqual({ name: "gallery" });
     expect(parseRoute("#/play/")).toEqual({ name: "gallery" });
+    expect(parseRoute("#/games/backgammon")).toEqual({ name: "gallery" });
     expect(parseRoute("#/nonsense")).toEqual({ name: "gallery" });
   });
 
