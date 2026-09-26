@@ -11,7 +11,9 @@
  * check what the sheet offers without a browser.
  */
 import type { LadderEntry } from "../games/ladder";
+import { parseFen } from "../editor";
 import { LEVELS } from "../levels";
+import { miniBoardHtml } from "./editorview";
 import { iconFor } from "./icons";
 
 export type SeatChoice = "first" | "random" | "second";
@@ -43,6 +45,11 @@ export interface SheetOptions {
   ratings?: Map<string, Map<string, Rating>>;
   /** Whether a game is under way, so that closing the sheet has somewhere to go back to. */
   cancellable: boolean;
+  /**
+   * For games that can start from a set-up position: the one chosen, or null for
+   * the usual start. Absent for games without a board editor.
+   */
+  start?: { fen: string | null };
 }
 
 const checked = (on: boolean) => (on ? " checked" : "");
@@ -111,12 +118,30 @@ export function sheetHtml(options: SheetOptions): string {
       </div>
     </fieldset>
     ${network}
+    ${options.start ? startHtml(options.start.fen, settings.seat !== "second") : ""}
 
     <div class="sheet-actions">
       ${options.cancellable ? `<button type="button" class="button ghost" data-sheet="cancel">Cancel</button>` : ""}
       <button type="submit" class="button primary">Play</button>
     </div>
   </form>`;
+}
+
+function startHtml(fen: string | null, whiteAtBottom: boolean): string {
+  const setup = fen ? parseFen(fen) : null;
+  return `<fieldset class="choice-group">
+    <legend>Start from</legend>
+    <div class="start-row">
+      ${setup ? miniBoardHtml(setup, whiteAtBottom) : ""}
+      <div class="start-text">
+        <span class="start-what">${setup ? "Your position" : "The usual starting position"}</span>
+        <div class="start-buttons">
+          <button type="button" class="button small" data-sheet="setup">${setup ? "Edit position" : "Set up a position"}</button>
+          ${setup ? `<button type="button" class="button small ghost" data-sheet="standard">Use the usual start</button>` : ""}
+        </div>
+      </div>
+    </div>
+  </fieldset>`;
 }
 
 /** The choices in a submitted sheet, falling back to what was there before. */

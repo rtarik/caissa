@@ -66,3 +66,39 @@ describe("the chess board's clicks", () => {
     expect(chessView.select(square(b7), context(state, pending))).toEqual({ kind: "pending", pending: null });
   });
 });
+
+describe("a game that began from a set-up position", () => {
+  /** The markup of one square of a rendered board. */
+  const cell = (html: string, square: number) =>
+    html.split("<button").find((chunk) => chunk.includes(`data-square="${square}"`)) ?? "";
+
+  it("marks the last move, played from the set-up position rather than the usual one", () => {
+    // Black to move first. The view used to replay the game from the usual
+    // starting position, where this action decodes as a white king's move from
+    // e1 - which is not legal there, so rendering threw and the page froze.
+    const start = ChessState.create("4k3/8/8/8/8/8/4R3/4K3 b - - 0 1");
+    const action = actionOf(start, { from: "e8", to: "d7", promotion: null });
+    const after = game.apply(start, action);
+
+    const html = chessView.board({
+      game: game as never,
+      state: after,
+      previous: start,
+      moves: [action],
+      humanFirst: true,
+      locked: true,
+      pending: null,
+    });
+    expect(cell(html, 60)).toContain("last"); // e8
+    expect(cell(html, 51)).toContain("last"); // d7
+    expect(cell(html, 4)).not.toContain("last"); // e1, where the old replay put it
+  });
+
+  it("marks nothing before the first move", () => {
+    const start = ChessState.create("4k3/8/8/8/8/8/4R3/4K3 b - - 0 1");
+    const html = chessView.board({
+      game: game as never, state: start, previous: null, moves: [], humanFirst: true, locked: true, pending: null,
+    });
+    expect(html).not.toContain(" last");
+  });
+});

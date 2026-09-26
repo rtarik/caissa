@@ -28,7 +28,7 @@ import type { View, ViewContext } from "./views";
 const PROMOTING = 64;
 
 /** The real square drawn at each display position, with the human's side nearest. */
-function displayOrder(humanWhite: boolean): number[] {
+export function displayOrder(humanWhite: boolean): number[] {
   const order: number[] = [];
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
@@ -48,38 +48,18 @@ export function san(state: ChessState, move: NamedMove): string {
   }).san;
 }
 
-interface Replayed {
-  /** Every move so far, in standard notation. */
-  sans: string[];
-  /** The position before the last move - the one the engine last searched. */
-  before: ChessState | null;
-  last: NamedMove | null;
-}
-
 /**
- * One replay per move list, shared by everything a render needs from the game's
- * history. The page replaces its move list rather than changing it, so the list
- * itself is the cache key.
+ * The last move shown, and the position it was played from.
+ *
+ * Taken from the page's own record of the game rather than replayed here. The
+ * replay this replaced started from the usual first position, so once a game
+ * could begin from a set-up position it decoded the engine's reply as a move
+ * from the wrong board - a black king's step read as a white king's - and threw.
  */
-const replays = new WeakMap<number[], Replayed>();
-
-function replayed(ctx: ViewContext): Replayed {
-  const known = replays.get(ctx.moves);
-  if (known) return known;
-  const sans: string[] = [];
-  let state = ctx.game.initialState() as ChessState;
-  let before: ChessState | null = null;
-  let last: NamedMove | null = null;
-  for (const action of ctx.moves) {
-    const move = moveOf(state, action);
-    sans.push(san(state, move));
-    before = state;
-    last = move;
-    state = ctx.game.apply(state, action) as ChessState;
-  }
-  const result = { sans, before, last };
-  replays.set(ctx.moves, result);
-  return result;
+function lastMove(ctx: ViewContext): { before: ChessState | null; last: NamedMove | null } {
+  const before = (ctx.previous ?? null) as ChessState | null;
+  const action = ctx.moves[ctx.moves.length - 1];
+  return { before, last: before && action !== undefined ? moveOf(before, action) : null };
 }
 
 /** The square of the king in check, if the player to move is in check. */
@@ -119,7 +99,7 @@ export const chessView: View = {
       }
     }
     const movable = new Set(ctx.locked ? [] : legal.map((move) => squareIndex(move.from)));
-    const { last } = replayed(ctx);
+    const { last } = lastMove(ctx);
     const lastSquares = new Set(last ? [squareIndex(last.from), squareIndex(last.to)] : []);
     const check = checkedKing(state);
 
@@ -205,7 +185,7 @@ export const chessView: View = {
   visits(counts, ctx) {
     // The engine searched the position before its move, so its actions are in
     // that position's frame - the engine's colour.
-    const { before } = replayed(ctx);
+    const { before } = lastMove(ctx);
     const engineWhite = before ? before.whiteToMove : !ctx.humanFirst;
     const toSquare = new Array<number>(64).fill(0);
     counts.forEach((visits, action) => {

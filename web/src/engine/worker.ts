@@ -43,7 +43,9 @@ self.onmessage = async (event: MessageEvent<ToEngine>) => {
     if (message.kind === "move") {
       if (!evaluator || !game) throw new Error("engine asked to move before the model loaded");
 
-      let state = game.initialState();
+      let state = message.start && game.positionFrom
+        ? game.positionFrom(message.start)
+        : game.initialState();
       for (const move of message.moves) state = game.apply(state, move);
       if (game.terminalValue(state) !== null) throw new Error("the game is already over");
 

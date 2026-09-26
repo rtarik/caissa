@@ -247,6 +247,11 @@ export class Chess implements Game<ChessState> {
     return ChessState.create(DEFAULT_POSITION);
   }
 
+  /** A position from a FEN, as the board editor or a pasted game gives it. */
+  positionFrom(fen: string): ChessState {
+    return ChessState.create(fen);
+  }
+
   toPlay(state: ChessState): number {
     return state.whiteToMove ? 0 : 1;
   }

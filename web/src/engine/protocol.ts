@@ -8,7 +8,18 @@ export type ToEngine =
    * undo or a new game - for a position that no longer exists - is dropped
    * rather than played into the wrong game.
    */
-  | { kind: "move"; id: number; moves: number[]; simulations: number };
+  | {
+      kind: "move";
+      id: number;
+      moves: number[];
+      simulations: number;
+      /**
+       * Where the moves start from, in the game's own notation, when it is not
+       * the usual beginning: a FEN from the board editor. The engine replays the
+       * moves from here instead; the network and the search are unchanged.
+       */
+      start?: string;
+    };
 
 export type FromEngine =
   | { kind: "ready"; game: string; generation?: number; parameters: number }

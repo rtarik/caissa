@@ -1280,3 +1280,97 @@ body[data-game="chess"] {
   .game-row { flex-wrap: wrap; }
   .game-actions { width: 100%; justify-content: flex-start; }
 }
+
+/* ------------------------------------------------------------ board editor */
+
+.editor { display: grid; gap: 18px; align-items: start; }
+.editor[hidden] { display: none; }
+@media (min-width: 860px) {
+  .editor { grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; }
+}
+.editor-stage { min-width: 0; }
+.editor-board .sq { cursor: pointer; }
+.editor-board .sq:hover { box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--accent) 60%, transparent); }
+.editor-panel { display: grid; gap: 14px; }
+.panel h2.editor-title { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; text-transform: none; color: var(--ink); margin: 0; }
+.editor-hint { margin: -8px 0 0; font-size: 13.5px; color: var(--muted); }
+
+.palette {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+  padding: 6px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.tool { position: relative; cursor: pointer; }
+.tool input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.tool span {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: 9px;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+.tool:hover span { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.tool input:checked + span {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+.tool input:focus-visible + span { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+.tool .chess-piece { width: 82%; height: 82%; }
+.tool .chess-piece.black { stroke: color-mix(in srgb, var(--ink) 60%, transparent); }
+/* The eraser spans the last row on its own, where it cannot be mistaken for a piece. */
+.tool:last-child { grid-column: 1 / -1; }
+.tool:last-child span { aspect-ratio: auto; height: 34px; }
+.eraser { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.editor-tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.editor-tools [hidden] { display: none; }
+.editor-panel .choice-group { margin: 0; }
+.castling { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+.check input { width: 16px; height: 16px; accent-color: var(--accent); }
+.check.unavailable { color: var(--muted); opacity: 0.55; cursor: default; }
+
+.fen-field { display: grid; gap: 5px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+.fen-field input {
+  font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 10px;
+  width: 100%;
+}
+.fen-field input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.fen-error { margin: -8px 0 0; font-size: 13px; color: #ee8a6a; }
+.setup-ok { margin: 0; font-size: 14px; font-weight: 560; color: #58c793; }
+.setup-problems { margin: 0; padding-left: 18px; font-size: 14px; color: #ee8a6a; display: grid; gap: 3px; }
+@media (prefers-color-scheme: light) {
+  .fen-error, .setup-problems { color: #b24422; }
+  .setup-ok { color: #1f7a50; }
+}
+
+/* The sheet's picture of a set-up position. */
+.start-row { display: flex; align-items: center; gap: 14px; }
+.start-text { display: grid; gap: 8px; }
+.start-what { font-size: 15px; font-weight: 560; }
+.start-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+.mini-board {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  width: 104px;
+  height: 104px;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.mini-sq { display: grid; place-items: center; background: #e3e7ef; }
+.mini-sq.dark { background: #9ba8c1; }
+.mini-sq .chess-piece { width: 100%; height: 100%; stroke-width: 4; filter: none; }

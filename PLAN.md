@@ -928,7 +928,7 @@ can set up, openings that vary.
 | 11.1 | **Done.** The new play screen: larger type, player cards above and below the board, a new-game sheet with level cards and segmented choices in place of the settings form | all games |
 | 11.2 | **Done.** Move list, stepping back and forth through the game, undo - with stale engine answers discarded | all games |
 | 11.3 | **Done.** PGN export and a history of games kept in the browser | chess |
-| 11.4 | Board editor and FEN; the engine accepts a starting position | chess |
+| 11.4 | **Done.** Board editor and FEN; the engine accepts a starting position | chess |
 | 11.5 | Varied openings from a book of our own 2200+ games, and opening names | chess |
 | 11.6 | **First measurement done** (results below). To do after 11.5: measure again with varied openings, and for *both* chess networks - the untrained one needs `--name chess` and will likely sit below Stockfish's 1320 floor, which the fit reports as a bound. A rough rating for each level against Stockfish at known strengths, shown on the level cards | chess |
 
@@ -1381,6 +1381,32 @@ record to write, and the history kept "resigned" for a game rewound to its first
 game with nothing of yours left in it now takes its record with it. And a Copy button tested by
 a script reported failure, correctly - browsers only let a page write the clipboard during a
 real click, which is what a real click then confirmed.
+
+**11.4, as built.** The owner asked the right question first: why would the engine need
+teaching to play a new position? It does not. The network judges whatever position it is
+shown and search works from anywhere; nothing was retrained. What changed was plumbing: the
+browser engine is told the moves, not the board, and replayed them from a starting position
+that was hard-coded. It is now told where the game began (`positionFrom`, an optional method on
+the game interface, so the worker still never mentions chess). The real caveat is statistical:
+a network that learned from strong human games has seen little of a position with three
+queens, and its instincts there are worth less - search carries it.
+
+The editor itself: a palette, click to place and click again to remove, who moves, castling
+rights that follow the pieces (a right with no rook to castle with cannot be switched on), and a
+FEN box that takes a pasted position without ever being rewritten under the cursor. chess.js
+refuses a missing or doubled king and pawns on the edge ranks; the editor adds what it lets
+through - the side not to move standing in check, nine pawns, and a game already over. The new-game
+sheet shows a set-up position as a small board, and it stays for the next game until changed.
+
+**The bug that the plumbing change exposed.** The first game from a set-up position froze the
+moment the engine replied. The chess view kept its own replay of the game, for the last-move
+highlight, and that replay began at the usual first position: the engine's reply as Black -
+Ke8-f7 - decoded as a white king's move from e1, which is illegal there, and rendering threw. The
+page already keeps every position of the game, so the view now receives the position before the
+last move instead of replaying anything. The regression test renders exactly that game. A
+second finding came from mutation testing: a test that only checked the engine's start position
+was "not finished" passed just as well when the engine ignored it, since the usual start is not
+finished either; it now checks it is the position asked for.
 
 **A bug the owner spotted within minutes.** The first version keyed ratings by *game*, so
 switching the chess engine to the untrained network kept showing "about 2300" - a rating measured

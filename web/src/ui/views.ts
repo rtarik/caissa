@@ -21,6 +21,13 @@ export interface ViewContext<S = unknown> {
   game: Game<S>;
   state: S;
   moves: number[];
+  /**
+   * The position before the last of `moves`, or null before any. The page keeps
+   * every position of the game, so a view that needs the move just played asks
+   * for this rather than replaying the game itself - a replay that has to know
+   * where the game began, which a set-up chess position changes.
+   */
+  previous?: S | null;
   humanFirst: boolean;
   locked: boolean;
   /**

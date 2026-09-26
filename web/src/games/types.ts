@@ -29,6 +29,14 @@ export interface Game<S> {
 
   initialState(): S;
   /**
+   * A position described in the game's own notation, for games that can start
+   * somewhere other than the beginning - a FEN, for chess. Optional: only chess
+   * has a board editor. Nothing about the network or the search changes for a
+   * position reached this way; they already play whatever position they are
+   * given. What changes is only where the replay of the moves begins.
+   */
+  positionFrom?(description: string): S;
+  /**
    * Which seat is to move: 0 for whoever moved first, 1 for the other.
    *
    * Mirrors `to_play` in `src/caissa/games/base.py`. Canonical perspective hides

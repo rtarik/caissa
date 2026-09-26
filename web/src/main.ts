@@ -23,6 +23,8 @@ import { browserStore, clearGames, deleteGame, loadGames, newGameId, saveGame, t
 import { chessOutcome, collectionPgn, engineName, movesText, pgnFileName, recordPgn } from "./pgn";
 import { pieceSvg } from "./ui/pieces";
 import type { ChessState } from "./games/chess";
+import { STANDARD_FEN, fenOf, parseFen, problems, withCastling, withPiece, withSideToMove, type Castling, type Setup } from "./editor";
+import { editorBoardHtml, paletteHtml, problemsHtml, rulesHtml, type Tool } from "./ui/editorview";
 import { playerCardHtml, tokenFor, type PlayerCard } from "./ui/players";
 import { approximately, readSettings, resolveSeat, sheetHtml, type Rating, type Settings } from "./ui/sheet";
 import type { FromEngine, ToEngine } from "./engine/protocol";
@@ -76,6 +78,13 @@ let gameId: string | null = null;
 let startedAt: string | null = null;
 let resigned = false;
 const store = browserStore();
+/** Where the game in progress began, when not at the usual start: a FEN, for chess. */
+let startFen: string | null = null;
+/** Where the next game will begin: what the new-game sheet shows, until changed. */
+let customStart: string | null = null;
+/** The board editor's work in progress while it is open, and the piece it places. */
+let editing: Setup | null = null;
+let tool: Tool = "P";
 /** Measured ratings, per network file and then per level, where there are any. */
 let ratings = new Map<string, Map<string, Rating>>();
 try {
@@ -154,22 +163,28 @@ function loadEngine(): void {
  * game is never replayed from the start just to step back one move. `moves` is
  * replaced rather than changed, so the array itself says whether this is current.
  */
-let history: { game: Game<unknown>; moves: number[]; states: unknown[]; labels: string[] } = {
-  game, moves: [], states: [game.initialState()], labels: [],
-};
+let history: {
+  game: Game<unknown>; start: string | null; moves: number[]; states: unknown[]; labels: string[];
+} = { game, start: null, moves: [], states: [game.initialState()], labels: [] };
+
+/** The position a game begins in: the usual one, or where the editor set it up. */
+function firstPosition(): unknown {
+  return startFen && game.positionFrom ? game.positionFrom(startFen) : game.initialState();
+}
 
 function positions(): typeof history {
-  if (history.moves === moves && history.game === game) return history;
-  const old = history.game === game ? history.moves : [];
+  if (history.moves === moves && history.game === game && history.start === startFen) return history;
+  const same = history.game === game && history.start === startFen;
+  const old = same ? history.moves : [];
   let common = 0;
   while (common < old.length && common < moves.length && old[common] === moves[common]) common++;
-  const states = history.game === game ? history.states.slice(0, common + 1) : [game.initialState()];
-  const labels = history.game === game ? history.labels.slice(0, common) : [];
+  const states = same ? history.states.slice(0, common + 1) : [firstPosition()];
+  const labels = same ? history.labels.slice(0, common) : [];
   for (let index = common; index < moves.length; index++) {
     labels.push(moveLabel(entry.key, states[index], moves[index]));
     states.push(game.apply(states[index], moves[index]));
   }
-  history = { game, moves, states, labels };
+  history = { game, start: startFen, moves, states, labels };
   return history;
 }
 
@@ -226,7 +241,7 @@ function play(action: number): void {
  * after a beat - long enough that the turn does not appear to have been skipped.
  */
 function advance(): void {
-  if (!ready || thinking || finished() || route.name !== "play" || sheetOpen) return;
+  if (!ready || thinking || finished() || route.name !== "play" || sheetOpen || editing) return;
 
   if (humanToMove()) {
     if (mustPass()) {
@@ -243,7 +258,9 @@ function advance(): void {
   thinking = true;
   requestId += 1;
   render();
-  worker.postMessage({ kind: "move", id: requestId, moves, simulations } satisfies ToEngine);
+  worker.postMessage({
+    kind: "move", id: requestId, moves, simulations, start: startFen ?? undefined,
+  } satisfies ToEngine);
 }
 
 function reset(): void {
@@ -374,6 +391,7 @@ function currentRecord(): GameRecord | null {
     rating: ratings.get(network?.file ?? "")?.get(level.label)?.rating,
     result: outcome.result,
     termination: outcome.termination,
+    ...(startFen ? { start: startFen } : {}),
   };
 }
 
@@ -422,6 +440,7 @@ function applyRoute(): void {
       view = VIEWS[entry.key];
       cancelSearch();
       moves = [];
+      startFen = null;
       viewing = null;
       report = null;
       pending = null;
@@ -523,6 +542,34 @@ app.innerHTML = `
           </div>
         </aside>
       </div>
+      <div class="editor" id="editor" hidden>
+        <div class="editor-stage">
+          <div class="board chess editor-board" id="editor-board"></div>
+        </div>
+        <aside class="editor-side">
+          <section class="panel editor-panel">
+            <h2 class="editor-title">Set up a position</h2>
+            <p class="editor-hint">Pick a piece, then click squares to place it. Click a piece again to take it off.</p>
+            <div id="editor-palette"></div>
+            <div class="editor-tools">
+              <button class="button small" data-editor="clear">Clear board</button>
+              <button class="button small" data-editor="standard">Starting position</button>
+              <button class="button small" data-editor="current" id="editor-current">This game</button>
+            </div>
+            <div id="editor-rules"></div>
+            <label class="fen-field">
+              <span>FEN</span>
+              <input id="editor-fen" spellcheck="false" autocomplete="off" autocapitalize="off">
+            </label>
+            <p class="fen-error" id="editor-fen-error" hidden></p>
+            <div id="editor-problems"></div>
+            <div class="sheet-actions">
+              <button class="button ghost" data-editor="cancel">Cancel</button>
+              <button class="button primary" data-editor="use" id="editor-use">Use this position</button>
+            </div>
+          </section>
+        </aside>
+      </div>
       <div class="sheet-backdrop" id="sheet" hidden></div>
     </section>
 
@@ -560,6 +607,16 @@ const resignEl = document.getElementById("resign") as HTMLButtonElement;
 const copyEl = document.getElementById("copy-pgn") as HTMLButtonElement;
 const downloadEl = document.getElementById("download-pgn") as HTMLButtonElement;
 const gamesLinkEl = document.getElementById("games-link")!;
+const editorEl = document.getElementById("editor")!;
+const editorBoardEl = document.getElementById("editor-board")!;
+const editorPaletteEl = document.getElementById("editor-palette")!;
+const editorRulesEl = document.getElementById("editor-rules")!;
+const editorFenEl = document.getElementById("editor-fen") as HTMLInputElement;
+const editorFenErrorEl = document.getElementById("editor-fen-error")!;
+const editorProblemsEl = document.getElementById("editor-problems")!;
+const editorUseEl = document.getElementById("editor-use") as HTMLButtonElement;
+const editorCurrentEl = document.getElementById("editor-current") as HTMLButtonElement;
+const layoutEl = document.querySelector<HTMLElement>("#play .layout")!;
 const screens: Record<string, HTMLElement> = {
   gallery: document.getElementById("gallery")!,
   play: document.getElementById("play")!,
@@ -623,7 +680,7 @@ for (const button of navEls) {
   button.addEventListener("click", () => step(button.dataset.nav!));
 }
 document.addEventListener("keydown", (event) => {
-  if (route.name !== "play" || sheetOpen) return;
+  if (route.name !== "play" || sheetOpen || editing) return;
   // The target may be the document itself, which has no closest(): not an element, not typing.
   const target = event.target instanceof Element ? event.target : null;
   const typing = target?.closest("input, select, textarea, [contenteditable]");
@@ -656,12 +713,104 @@ sheetEl.addEventListener("change", (event) => {
 });
 sheetEl.addEventListener("click", (event) => {
   const target = event.target as HTMLElement;
+  const form = sheetEl.querySelector<HTMLFormElement>("form");
+  if (target.closest("[data-sheet='setup']") && form) {
+    // Keep what was chosen so far, then set up the position.
+    settings = readSettings(new FormData(form), settings);
+    closeSheet(false);
+    openEditor(customStart ?? STANDARD_FEN);
+    return;
+  }
+  if (target.closest("[data-sheet='standard']")) {
+    customStart = null;
+    refreshSheet();
+    return;
+  }
   // The backdrop itself, or the Cancel button - not a click inside the sheet.
   if (target === sheetEl || target.closest("[data-sheet='cancel']")) closeSheet();
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && sheetOpen) closeSheet();
+  else if (event.key === "Escape" && editing) leaveEditor(false);
 });
+
+// ------------------------------------------------------------------- editor
+
+editorEl.addEventListener("click", (event) => {
+  if (!editing) return;
+  const target = event.target as HTMLElement;
+  const square = target.closest<HTMLElement>("[data-square]");
+  if (square) {
+    const index = Number(square.dataset.square);
+    // Placing a piece where the same piece stands takes it off: one tool does both.
+    const same = editing.squares[index] === tool;
+    editing = withPiece(editing, index, same ? null : tool);
+    renderEditor(true);
+    return;
+  }
+  const action = target.closest<HTMLElement>("[data-editor]")?.dataset.editor;
+  if (action === "clear") editing = { ...parseFen("8/8/8/8/8/8/8/8 w - - 0 1")! };
+  else if (action === "standard") editing = parseFen(STANDARD_FEN);
+  else if (action === "current") editing = parseFen((state() as ChessState).fen);
+  else if (action === "cancel") return leaveEditor(false);
+  else if (action === "use") return leaveEditor(true);
+  else return;
+  renderEditor(true);
+});
+
+editorEl.addEventListener("change", (event) => {
+  if (!editing) return;
+  const input = event.target as HTMLInputElement;
+  if (input.name === "tool") tool = (input.value || null) as Tool;
+  else if (input.name === "tomove") editing = withSideToMove(editing, input.value === "w");
+  else if (input.name === "castle") editing = withCastling(editing, input.value as keyof Castling, input.checked);
+  else return;
+  renderEditor(true);
+});
+
+editorFenEl.addEventListener("input", () => {
+  // A FEN is usually pasted whole, sometimes typed: only a complete one moves
+  // the board, and the box is never rewritten under the cursor.
+  const parsed = parseFen(editorFenEl.value);
+  editorFenErrorEl.hidden = parsed !== null || editorFenEl.value.trim() === "";
+  editorFenErrorEl.textContent = "That isn't a complete FEN yet.";
+  if (!parsed) return;
+  editing = parsed;
+  renderEditor(false);
+});
+
+function openEditor(fen: string): void {
+  editing = parseFen(fen) ?? parseFen(STANDARD_FEN);
+  editorFenErrorEl.hidden = true;
+  editorEl.hidden = false;
+  layoutEl.hidden = true;
+  renderEditor(true);
+}
+
+/** Back to the sheet, keeping the position if asked and if it can be played. */
+function leaveEditor(keep: boolean): void {
+  if (keep && editing) {
+    if (problems(editing).length) return;
+    customStart = fenOf(editing);
+  }
+  editing = null;
+  editorEl.hidden = true;
+  layoutEl.hidden = false;
+  openSheet(sheetCancellable);
+}
+
+function renderEditor(rewriteFen: boolean): void {
+  if (!editing) return;
+  // The board faces the side you are going to play; Random shows White below.
+  editorBoardEl.innerHTML = editorBoardHtml(editing, settings.seat !== "second");
+  editorPaletteEl.innerHTML = paletteHtml(tool);
+  editorRulesEl.innerHTML = rulesHtml(editing);
+  if (rewriteFen) editorFenEl.value = fenOf(editing);
+  const found = problems(editing);
+  editorProblemsEl.innerHTML = problemsHtml(found);
+  editorUseEl.disabled = found.length > 0;
+  editorCurrentEl.hidden = entry.key !== "chess" || (moves.length === 0 && startFen === null);
+}
 detailsToggle.addEventListener("click", () => {
   showDetails = !showDetails;
   try {
@@ -698,6 +847,7 @@ function drawSheet(chosen: Settings): void {
     networks: (networks.get(entry.key) ?? []).map((n) => ({ file: n.file, label: n.label })),
     ratings,
     cancellable: sheetCancellable,
+    start: entry.key === "chess" ? { fen: customStart } : undefined,
   });
 }
 
@@ -713,12 +863,13 @@ function refreshSheet(): void {
   if (focused) sheetEl.querySelector<HTMLButtonElement>("button[type=submit]")?.focus();
 }
 
-function closeSheet(): void {
+function closeSheet(resume = true): void {
   sheetOpen = false;
   sheetEl.hidden = true;
   for (const element of document.querySelectorAll<HTMLElement>(".play-head, .layout")) {
     element.inert = false;
   }
+  if (!resume) return;
   // Closing without choosing still starts the game that was waiting.
   render();
   advance();
@@ -726,6 +877,7 @@ function closeSheet(): void {
 
 function startGame(chosen: Settings): void {
   settings = chosen;
+  startFen = entry.key === "chess" ? customStart : null;
   simulations = LEVELS[settings.level].simulations;
   humanFirst = resolveSeat(settings.seat);
   const next = networks.get(entry.key)?.find((n) => n.file === settings.network);
@@ -746,16 +898,22 @@ function startGame(chosen: Settings): void {
 /** The moves up to the position on the board, one array per point, so views can cache on it. */
 let shownMoves: { moves: number[]; ply: number; slice: number[] } = { moves, ply: 0, slice: [] };
 
-function context() {
-  const ply = shownPly();
+/**
+ * What the board is showing, for the views: by default the position being
+ * looked at, or `ply` to ask about another - the analysis describes the engine's
+ * latest search, which belongs to the game as it stands, not to a move in the past.
+ */
+function context(ply = shownPly()) {
   if (shownMoves.moves !== moves || shownMoves.ply !== ply) {
     shownMoves = { moves, ply, slice: ply === moves.length ? moves : moves.slice(0, ply) };
   }
-  const looking = viewing !== null;
+  const looking = ply !== moves.length;
   const locked = looking || thinking || finished() || !humanToMove() || !ready;
+  const { states } = positions();
   return {
     game,
-    state: positions().states[ply],
+    state: states[ply],
+    previous: ply > 0 ? states[ply - 1] : null,
     moves: shownMoves.slice,
     humanFirst,
     locked,
@@ -1219,7 +1377,7 @@ function renderMoves(): void {
 
   moveListEl.innerHTML = plies.length === 0
     ? `<p class="move-empty">${humanFirst ? "Make your first move." : "Caissa moves first."}</p>`
-    : rowsOf(plies).map((row) => `<div class="move-row">
+    : rowsOf(plies, startFen ? parseFen(startFen)?.fullmove ?? 1 : 1).map((row) => `<div class="move-row">
         <span class="move-number">${row.number}</span>
         <span class="move-cell">${cell(row.cells[0])}</span>
         <span class="move-cell">${cell(row.cells[1])}</span>
@@ -1310,7 +1468,7 @@ function analysisPanel(): string {
     <h2>Analysis</h2>
     <div class="evalbar"><span style="width:${percent.toFixed(1)}%"></span></div>
     <div class="meta"><span>You ${percent.toFixed(0)}%</span><span>Engine ${(100 - percent).toFixed(0)}%</span></div>
-    ${view.visits(report.visits, context())}
+    ${view.visits(report.visits, context(moves.length))}
     <div class="meta">
       <span>${report.simulations > 0 ? `${report.simulations} simulations` : "Network only, no search"}</span>
       <span>${Math.round(report.ms)} ms</span>
