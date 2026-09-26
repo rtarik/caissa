@@ -2,9 +2,10 @@
  * The four opponents the site offers.
  *
  * One dial: how many positions the engine looks at before it moves. The names
- * are what a player sees, and `scripts/levels.py` measures what each one is
- * actually worth in each game - the gaps run from about 380 Elo end to end in
- * Gomoku to nearly a thousand in Reversi.
+ * are what a player sees, and `scripts/levels.py` and `scripts/crossfamily.py`
+ * measure what each one is actually worth in each game - measured from outside,
+ * the gaps run from about 330 Elo end to end in Gomoku to about 850 in Reversi
+ * and chess.
  *
  * Beginner searches nothing at all and answers with the network's first
  * instinct. That is a real opponent rather than a hobbled one: it is what the

@@ -10,7 +10,9 @@ import { describe, expect, it } from "vitest";
 import { LADDER } from "../src/games/ladder";
 import { DEFAULT_LEVEL, LEVELS } from "../src/levels";
 import { playerCardHtml, tokenFor } from "../src/ui/players";
-import { approximately, readSettings, resolveSeat, sheetHtml, type Settings } from "../src/ui/sheet";
+import {
+  approximately, measuredElo, ratingText, readSettings, resolveSeat, sheetHtml, type Settings,
+} from "../src/ui/sheet";
 
 const chess = LADDER.find((item) => item.key === "chess")!;
 const gomoku = LADDER.find((item) => item.key === "gomoku")!;
@@ -166,5 +168,29 @@ describe("showing a rating", () => {
     });
     expect(html).toContain("about 2300");
     expect(html).not.toContain("2288");
+  });
+
+  it("shows a bound as a bound, never as a rating of zero", () => {
+    // The untrained network lost every game to Stockfish's weakest setting, so
+    // the fit ran into the bottom of its range and returned 0 - not a rating.
+    const ratings = new Map([["untrained", new Map([["Master", { rating: 0, low: 0, high: 958, below: 958 }]])]]);
+    const html = sheetHtml({
+      entry: chess, settings: { ...defaults, network: "untrained" }, networks: [], ratings, cancellable: false,
+    });
+    expect(html).toContain("under 1000");
+    expect(html).not.toContain("about 0");
+  });
+
+  it("rounds a bound outwards, so that it never claims more than was measured", () => {
+    expect(ratingText({ rating: 720, low: 0, high: 1064, below: 1064 })).toBe("under 1100");
+    expect(ratingText({ rating: 4000, low: 2640, high: 4000, above: 2640 })).toBe("over 2600");
+    expect(ratingText({ rating: 2288, low: 2209, high: 2369 })).toBe("about 2300");
+  });
+
+  it("gives a PGN header a measured rating, never a bound", () => {
+    expect(measuredElo({ rating: 2293, low: 2213, high: 2374 })).toBe(2293);
+    expect(measuredElo({ rating: 720, low: 0, high: 1064, below: 1064 })).toBeUndefined();
+    expect(measuredElo({ rating: 4000, low: 2640, high: 4000, above: 2640 })).toBeUndefined();
+    expect(measuredElo(undefined)).toBeUndefined();
   });
 });

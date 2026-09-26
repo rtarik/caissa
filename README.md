@@ -124,6 +124,27 @@ playing each level against the one below it. It writes `web/public/levels.json`,
 .venv/bin/python scripts/levels.py --games 60
 ```
 
+That ladder flatters: a level playing its own shallower self knows exactly where it will go
+wrong. So each ladder is also measured from outside. Chess levels play Stockfish at known
+strengths (`stockfish` on the path, e.g. from Homebrew), which gives them ratings on a real
+scale - `--name` files them under the network's name on the site:
+
+```bash
+.venv/bin/python scripts/stockfish.py --games 24 --workers 10
+```
+
+```bash
+.venv/bin/python scripts/stockfish.py --checkpoint models/chess-gen0000.pt --name chess --strengths 1320 1500 --games 12
+```
+
+The other games keep earlier generations from training, and `scripts/crossfamily.py` has the
+current network's levels play only an earlier network's, fitting every rating at once. It writes
+`web/public/crossfamily.json`, shown beside the self-play numbers:
+
+```bash
+.venv/bin/python scripts/crossfamily.py --games 40
+```
+
 `scripts/gifts.py` checks the other end of the game: how often a checkpoint takes a box handed
 to it early, a position its own self-play almost never produces.
 

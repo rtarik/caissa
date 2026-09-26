@@ -1,0 +1,154 @@
+{
+ "reversi": {
+  "current": "reversi-latest",
+  "older": "reversi-gen0020",
+  "gamesPerPairing": 40,
+  "ratings": {
+   "now Beginner": 0,
+   "now Casual": 353,
+   "now Master": 854,
+   "now Strong": 673,
+   "old Beginner": -160,
+   "old Casual": 172,
+   "old Master": 494,
+   "old Strong": 347
+  },
+  "steps": [
+   {
+    "level": "Casual",
+    "gap": 353,
+    "low": 262,
+    "high": 433,
+    "measured": true
+   },
+   {
+    "level": "Strong",
+    "gap": 320,
+    "low": 229,
+    "high": 424,
+    "measured": true
+   },
+   {
+    "level": "Master",
+    "gap": 181,
+    "low": 28,
+    "high": 326,
+    "measured": true
+   }
+  ]
+ },
+ "gomoku": {
+  "current": "gomoku-latest",
+  "older": "gomoku-gen0030",
+  "gamesPerPairing": 40,
+  "ratings": {
+   "now Beginner": 0,
+   "now Casual": 134,
+   "now Master": 326,
+   "now Strong": 254,
+   "old Beginner": -161,
+   "old Casual": -15,
+   "old Master": 163,
+   "old Strong": 161
+  },
+  "steps": [
+   {
+    "level": "Casual",
+    "gap": 134,
+    "low": 62,
+    "high": 208,
+    "measured": true
+   },
+   {
+    "level": "Strong",
+    "gap": 120,
+    "low": 47,
+    "high": 186,
+    "measured": true
+   },
+   {
+    "level": "Master",
+    "gap": 72,
+    "low": 9,
+    "high": 160,
+    "measured": true
+   }
+  ]
+ },
+ "isola": {
+  "current": "isola-latest",
+  "older": "isola-gen0020",
+  "gamesPerPairing": 40,
+  "ratings": {
+   "now Beginner": 0,
+   "now Casual": 127,
+   "now Master": 488,
+   "now Strong": 203,
+   "old Beginner": -120,
+   "old Casual": 127,
+   "old Master": 379,
+   "old Strong": 250
+  },
+  "steps": [
+   {
+    "level": "Casual",
+    "gap": 127,
+    "low": 43,
+    "high": 217,
+    "measured": true
+   },
+   {
+    "level": "Strong",
+    "gap": 76,
+    "low": -6,
+    "high": 172,
+    "measured": true
+   },
+   {
+    "level": "Master",
+    "gap": 285,
+    "low": 204,
+    "high": 390,
+    "measured": true
+   }
+  ]
+ },
+ "dotsandboxes": {
+  "current": "dotsandboxes-latest",
+  "older": "dotsandboxes-gen0040",
+  "gamesPerPairing": 40,
+  "ratings": {
+   "now Beginner": 0,
+   "now Casual": 222,
+   "now Master": 362,
+   "now Strong": 331,
+   "old Beginner": -65,
+   "old Casual": 148,
+   "old Master": 279,
+   "old Strong": 148
+  },
+  "steps": [
+   {
+    "level": "Casual",
+    "gap": 222,
+    "low": 140,
+    "high": 310,
+    "measured": true
+   },
+   {
+    "level": "Strong",
+    "gap": 108,
+    "low": 22,
+    "high": 207,
+    "measured": true
+   },
+   {
+    "level": "Master",
+    "gap": 31,
+    "low": -72,
+    "high": 125,
+    "measured": true
+   }
+  ]
+ }
+}

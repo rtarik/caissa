@@ -27,7 +27,10 @@ import { bookMove, openingOf, parseBook, parseNames, type Book, type BookMove, t
 import { STANDARD_FEN, fenOf, parseFen, problems, withCastling, withPiece, withSideToMove, type Castling, type Setup } from "./editor";
 import { editorBoardHtml, paletteHtml, problemsHtml, rulesHtml, type Tool } from "./ui/editorview";
 import { playerCardHtml, tokenFor, type PlayerCard } from "./ui/players";
-import { approximately, readSettings, resolveSeat, sheetHtml, type Rating, type Settings } from "./ui/sheet";
+import { measuredElo, ratingText, readSettings, resolveSeat, sheetHtml, type Rating, type Settings } from "./ui/sheet";
+import {
+  olderSteps, stockfishSteps, strengthRows, type Gap, type OutsideStep, type OwnRung, type StrengthRow,
+} from "./strength";
 import type { FromEngine, ToEngine } from "./engine/protocol";
 import { networksByGame, type ModelEntry, type Network } from "./models";
 import { LEVELS, DEFAULT_LEVEL } from "./levels";
@@ -454,7 +457,7 @@ function currentRecord(): GameRecord | null {
     simulations: level.simulations,
     network: network?.file ?? entry.key,
     networkLabel: network?.label ?? "",
-    rating: ratings.get(network?.file ?? "")?.get(level.label)?.rating,
+    rating: measuredElo(ratings.get(network?.file ?? "")?.get(level.label)),
     result: outcome.result,
     termination: outcome.termination,
     ...(startFen ? { start: startFen } : {}),
@@ -1174,22 +1177,30 @@ function renderAbout(): void {
       <h3 class="prose-sub">How strong is it?</h3>
       <p>
         Each level played Stockfish, the strongest open-source engine, told to play
-        at a chosen strength: 1320 up to 2500, both colours, 24 games at every step
+        at a chosen strength: 1320 up to 2500, both colours, 24 games at every step,
+        opening from the book just as it does against you
         (${code("scripts/stockfish.py", "stockfish.py")}). One rating per level is then
         fitted to all of its results at once, the rating that makes those scores most
         likely (${code("src/caissa/rating.py", "rating.py")}).
       </p>
       ${chessRatingsTable()}
       <p>
+        The untrained network lost all but one of its games, even against the
+        weakest setting Stockfish has, so it gets a ceiling instead of a rating. A
+        rating is a place between the players you beat and the players you lose
+        to; with nobody below it, the games can only say it is somewhere under.
+      </p>
+      <p>
         Two honest caveats. Stockfish's strength setting is calibrated against other
         engines rather than people, so these sit on roughly the FIDE scale rather
-        than on it. And the step from Strong to Master is worth about 100 points
-        here, where the same two levels played against each other showed nearly
-        400. The same network at two depths shares its blind spots, so the deeper
-        search knows exactly where its twin will go wrong; an outside opponent does
-        not make those tailored mistakes. Ratings measured inside one family of
-        players stretch the gaps between them, which is why these came from
-        outside it.
+        than on it. And the levels are closer together here than they looked when
+        they played each other: Master is about 250 points above Strong here, where
+        head to head it looked like nearly 400, and Strong won all 24 of its games
+        against Casual yet sits only about 190 above it. The same network at two
+        depths shares its blind spots, so the deeper search knows exactly where its
+        twin will go wrong; an outside opponent does not make those tailored
+        mistakes. Ratings measured inside one family of players stretch the gaps
+        between them, which is why these came from outside it.
       </p>
       <p>
         One smaller difference worth naming: <strong>Gomoku</strong> was trained
@@ -1202,17 +1213,50 @@ function renderAbout(): void {
 
       <h2>5. How strong are the four levels?</h2>
       <p>
-        Every level plays the one below it, sixty games each, same network on both
-        sides (${code("scripts/levels.py", "levels.py")}). The numbers are Elo, the
-        gap a rating system would put between them, and they only compare levels
-        <em>within</em> one game.
+        There are two ways to measure the step from one level to the next, and the
+        difference between them is worth knowing about.
+      </p>
+      <p>
+        The quick way is to have each level play the one below it
+        (${code("scripts/levels.py", "levels.py")}). But then the same network sits
+        on both sides, sharing every blind spot, and the deeper search knows exactly
+        where its shallower twin will go wrong. Chess showed what that does: against
+        Stockfish, its two upper steps came out a third smaller or more than they
+        looked head to head.
+      </p>
+      <p>
+        So each level was also measured against outsiders: Stockfish for chess, and
+        for four of the other games an earlier version of the same network, saved
+        during training and somewhat weaker. The current levels play only
+        the older ones, never each other, and every rating comes out of one fit of
+        all the results (${code("scripts/crossfamily.py", "crossfamily.py")}). In
+        each cell the outside figure comes first, with its 95% margin, and under it
+        the same step measured against itself. All are Elo, the gap a rating system
+        would put between two players, and they only compare levels <em>within</em>
+        a game.
       </p>
       <div id="levels-table"><p class="teaches">Measuring…</p></div>
       <p>
-        The spread is the interesting part. Search is worth far more in some games
-        than others: a Reversi flip three moves ahead is invisible to the network
-        and obvious to a search, while in Gomoku, with eighty-one places to put a
-        stone, tripling the budget barely deepens anything.
+        The bottom step agrees everywhere: searching a little beats not searching
+        at all by the same margin, whoever the opponent. Higher up, where both
+        sides search deeply enough for the stronger to steer towards its twin's
+        particular mistakes, the outside figures shrink - clearly in chess, and at
+        the top of Dots &amp; Boxes, where against the older network Master is
+        barely ahead of Strong. Reversi's top step points the same way within its
+        margin, while Gomoku and Isolation hold up. Four in a Row kept no earlier
+        version to test against.
+      </p>
+      <p>
+        Even these may flatter a little. An earlier version is a gentler test than
+        a stranger: it learned from the same run of self-play and still shares
+        some of the blind spots. Only chess had a true stranger to play, which is
+        why its figures are the ones to trust most.
+      </p>
+      <p>
+        The spread between games is the interesting part. Search is worth far more
+        in some games than others: a Reversi flip three moves ahead is invisible to
+        the network and obvious to a search, while in Gomoku, with eighty-one places
+        to put a stone, tripling the budget barely deepens anything.
       </p>
 
       <h2>6. On your device</h2>
@@ -1302,63 +1346,82 @@ function renderGames(): void {
   `;
 }
 
-/** The chess levels' measured ratings, as a table, once they have loaded. */
+/**
+ * The chess levels' measured ratings as a table, one column per engine that has
+ * them, once they have loaded.
+ */
 function chessRatingsTable(): string {
-  const chessNetworks = networks.get("chess") ?? [];
-  const measuredOn = chessNetworks.find((n) => ratings.get(n.file)?.size);
-  const measured = measuredOn ? ratings.get(measuredOn.file) : undefined;
-  if (!measuredOn || !measured?.size) return "";
-  const rows = LEVELS.map((level) => {
-    const rating = measured.get(level.label);
-    return rating
-      ? `<tr><td>${level.label}</td><td class="gain">about ${approximately(rating.rating)}</td>
-         <td>${rating.low}–${rating.high}</td></tr>`
-      : "";
-  }).join("");
+  const columns = (networks.get("chess") ?? []).flatMap((network) => {
+    const measured = ratings.get(network.file);
+    return measured?.size ? [{ label: network.label, measured }] : [];
+  });
+  if (!columns.length) return "";
+  const cell = (rating: Rating | undefined) => {
+    if (!rating) return "<td></td>";
+    // A bound has no range to show; the bound is the whole of what was measured.
+    const range = measuredElo(rating) === undefined
+      ? ""
+      : `<br><span class="muted">${rating.low}–${rating.high}</span>`;
+    return `<td class="gain">${ratingText(rating)}${range}</td>`;
+  };
+  const rows = LEVELS.map((level) => `<tr><td>${level.label}</td>${
+    columns.map((column) => cell(column.measured.get(level.label))).join("")
+  }</tr>`).join("");
   return `<table class="levels">
-    <thead><tr><th>Level</th><th>Rating</th><th>95% range</th></tr></thead>
+    <thead><tr><th>Level</th>${columns.map((column) => `<th>${column.label}</th>`).join("")}</tr></thead>
     <tbody>${rows}</tbody>
   </table>
-  <p class="teaches">Measured for the ${measuredOn.label} engine; the others are not rated yet.</p>`;
+  <p class="teaches">Under each rating, the range it falls in with 95% confidence.</p>`;
 }
 
-/** The measured ladder, fetched once and only when the page asks for it. */
-let ladderTable: string | null = null;
+interface Ladders {
+  own: Record<string, OwnRung[]>;
+  older: Record<string, { steps: OutsideStep[] }>;
+}
+
+/** The measured ladders, fetched once and only when the page asks for them. */
+let ladders: Ladders | null = null;
+
+async function loadLadders(): Promise<Ladders> {
+  const [own, older] = await Promise.all([
+    fetch(asset("levels.json")).then((r) => r.json()),
+    // Optional: without it the table shows what was measured against Stockfish alone.
+    fetch(asset("crossfamily.json")).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+  ]);
+  return { own: own.games, older };
+}
+
+/**
+ * The network `scripts/levels.py` measured the chess ladder on, and so the one
+ * whose Stockfish ratings it is set beside.
+ */
+const CHESS_LADDER_NETWORK = "chess-imitation1";
 
 async function fillLevels(): Promise<void> {
   const host = document.getElementById("levels-table");
   if (!host) return;
-  if (ladderTable !== null) {
-    host.innerHTML = ladderTable;
+  let measured: Ladders;
+  try {
+    measured = ladders ?? (ladders = await loadLadders());
+  } catch {
+    // The ladder file is optional too; without it the page simply says less.
+    host.innerHTML = "";
     return;
   }
-  try {
-    const data: {
-      games: Record<string, { level: string; elo: number; score: number }[]>;
-    } = await fetch(asset("levels.json")).then((r) => r.json());
-
-    const steps = LEVELS.slice(1).map((l) => l.label);
-    const rows = LADDER.filter((item) => data.games[item.key]).map((item) => {
-      const cells = data.games[item.key]
-        .map((rung) => {
-          // A clean sweep has no upper end to report, only a floor.
-          const gain = rung.score >= 1 ? "off the scale" : `+${Math.round(rung.elo)}`;
-          return `<td class="gain">${gain}</td>`;
-        })
-        .join("");
-      return `<tr><td>${item.title}</td>${cells}</tr>`;
-    });
-    ladderTable = `<table class="levels">
-      <thead><tr><th>Game</th>${steps
-        .map((name, index) => `<th>${name}<br><span class="muted">over ${LEVELS[index].label}</span></th>`)
-        .join("")}</tr></thead>
-      <tbody>${rows.join("")}</tbody>
-    </table>`;
-    host.innerHTML = ladderTable;
-  } catch {
-    // The file is optional; without it the page simply says less.
-    host.innerHTML = "";
-  }
+  const outside: Record<string, (Gap | null)[]> = {
+    ...Object.fromEntries(Object.entries(measured.older).map(([key, game]) => [key, olderSteps(game.steps)])),
+    chess: stockfishSteps(ratings.get(CHESS_LADDER_NETWORK)),
+  };
+  const cell = (step: StrengthRow["steps"][number]) => `<td class="gain">${step.outside ?? "–"}<br>
+    <span class="muted">itself&nbsp;${step.itself ?? "–"}</span></td>`;
+  host.innerHTML = `<table class="levels">
+    <thead><tr><th>Game</th>${LEVELS.slice(1)
+      .map((level, index) => `<th>${level.label}<br><span class="muted">over ${LEVELS[index].label}</span></th>`)
+      .join("")}</tr></thead>
+    <tbody>${strengthRows(LADDER, measured.own, outside)
+      .map((row) => `<tr><td>${row.title}</td>${row.steps.map(cell).join("")}</tr>`)
+      .join("")}</tbody>
+  </table>`;
 }
 
 function render(): void {
@@ -1433,7 +1496,7 @@ function playerCards(): [PlayerCard, PlayerCard] {
     {
       side: "engine",
       name: `Caissa <span class="player-level">${level.label}</span>`,
-      detail: rating ? `Rated about ${approximately(rating.rating)}` : level.note,
+      detail: rating ? `Rated ${ratingText(rating)}` : level.note,
       status: thinking ? "Thinking…" : "",
       active: ready && !over && !humanToMove(),
       winner: engineWon,
@@ -1619,11 +1682,15 @@ async function start(): Promise<void> {
 async function loadRatings(): Promise<void> {
   try {
     const data: {
-      networks: Record<string, { levels: { label: string; rating: number; low: number; high: number }[] }>;
+      networks: Record<string, { levels: ({ label: string } & Rating)[] }>;
     } = await fetch(asset("ratings.json")).then((r) => r.json());
     ratings = new Map(Object.entries(data.networks).map(([file, measured]) => [
       file,
-      new Map(measured.levels.map((l) => [l.label, { rating: l.rating, low: l.low, high: l.high }])),
+      new Map(measured.levels.map((l) => [l.label, {
+        rating: l.rating, low: l.low, high: l.high,
+        ...(l.below !== undefined ? { below: l.below } : {}),
+        ...(l.above !== undefined ? { above: l.above } : {}),
+      }])),
     ]));
     // Both the play screen and the guide show them; the gallery does not.
     if (route.name !== "gallery") render();

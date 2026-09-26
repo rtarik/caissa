@@ -12,6 +12,12 @@ So each level plays the level below it, same network on both sides, and the gaps
 chain into a ladder per game. Read them as within-game distances only. Elo does
 not transfer between games, and the numbers here are not comparable to a human
 rating on any scale.
+
+And read them with some suspicion. Two levels of one network share every blind
+spot, so the deeper one knows exactly where the shallower will go wrong, which
+an outside opponent would not: against Stockfish, chess's two upper steps came
+out a third smaller or more. `stockfish.py` and `crossfamily.py` measure the
+same steps from outside.
 """
 
 from __future__ import annotations

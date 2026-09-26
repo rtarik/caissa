@@ -54,6 +54,26 @@ MOVE_SECONDS = 0.1
 #: Games longer than this are called drawn, as self-play does.
 MAX_PLIES = 300
 
+#: The range a rating is searched over. A fit that runs into either end has not
+#: found a rating: a level that lost every game to the weakest Stockfish is
+#: somewhere below it, and the games cannot say how far.
+FLOOR, CEILING = 0, 4000
+
+
+def bounds(low: float, high: float) -> dict[str, int]:
+    """What an interval that reaches an end of the range says instead of a rating.
+
+    Reaching the floor leaves only a ceiling - the level is `below` the top of
+    its interval - and reaching the top leaves only a floor. Written into the
+    file explicitly, so that nothing downstream shows "about 0".
+    """
+    found = {}
+    if low <= FLOOR:
+        found["below"] = round(high)
+    if high >= CEILING:
+        found["above"] = round(low)
+    return found
+
 
 @dataclass
 class Task:
@@ -69,7 +89,30 @@ class Task:
 _worker: dict = {}
 
 
-def _setup(checkpoint: str, stockfish: str) -> None:
+def load_book(path: Path | None) -> dict[str, list[tuple[str, int]]]:
+    """The site's opening book, so the engine measured is the engine people play."""
+    if path is None or not path.exists():
+        return {}
+    return {key: [(uci, count) for uci, count in moves]
+            for key, moves in json.loads(path.read_text())["positions"].items()}
+
+
+def book_move(board: chess.Board, book: dict, rng: np.random.Generator) -> chess.Move | None:
+    """A move sampled from the book as the site samples it, or None out of book.
+
+    Keyed exactly as the book was built and as the browser looks it up: the
+    first four FEN fields, with an en passant square only when a capture there
+    is legal - python-chess's default, and chess.js's.
+    """
+    entries = book.get(" ".join(board.fen().split(" ")[:4]))
+    if not entries:
+        return None
+    counts = np.array([count for _, count in entries], dtype=float)
+    uci = entries[int(rng.choice(len(entries), p=counts / counts.sum()))][0]
+    return chess.Move.from_uci(uci)
+
+
+def _setup(checkpoint: str, stockfish: str, book: str | None) -> None:
     """One network and one Stockfish per worker process, reused for every game."""
     torch.set_num_threads(1)
     game = Chess()
@@ -78,7 +121,8 @@ def _setup(checkpoint: str, stockfish: str) -> None:
     net.load_state_dict(saved["network"])
     engine = chess.engine.SimpleEngine.popen_uci(stockfish)
     engine.configure({"Threads": 1, "Hash": 16, "UCI_LimitStrength": True})
-    _worker.update(game=game, evaluator=NetworkEvaluator(net), engine=engine)
+    _worker.update(game=game, evaluator=NetworkEvaluator(net), engine=engine,
+                   book=load_book(Path(book) if book else None))
 
 
 def _play(task: Task) -> tuple[str, int, float]:
@@ -93,7 +137,10 @@ def _play(task: Task) -> tuple[str, int, float]:
     plies = 0
     while (result := game.terminal_value(state)) is None and plies < MAX_PLIES:
         if game.to_play(state) == ours:
-            action = player.choose(game, state, rng)
+            # As on the site: the book while it lasts, the network and search after.
+            opening = book_move(state.board, _worker["book"], rng)
+            action = (action_of(state.board, opening) if opening
+                      else player.choose(game, state, rng))
         else:
             move = engine.play(state.board, chess.engine.Limit(time=task.seconds)).move
             action = action_of(state.board, move)
@@ -115,6 +162,10 @@ def main() -> None:
                         help="the network's name on the site, as export.py --name gave it; "
                              "defaults to the checkpoint's file name")
     parser.add_argument("--stockfish", default="stockfish")
+    parser.add_argument("--book", type=Path, default=Path("web/public/book.json"),
+                        help="the site's opening book; the engine measured should be the one played")
+    parser.add_argument("--no-book", action="store_true",
+                        help="measure without the book, as the first measurement was")
     parser.add_argument("--games", type=int, default=24,
                         help="per level and Stockfish strength, split between colours")
     parser.add_argument("--levels", nargs="+", default=None,
@@ -143,7 +194,8 @@ def main() -> None:
     outcomes: dict[str, list[tuple[int, float]]] = {level: [] for level, _ in levels}
     with mp.get_context("spawn").Pool(
         args.workers, initializer=_setup,
-        initargs=(str(args.checkpoint), args.stockfish),
+        initargs=(str(args.checkpoint), args.stockfish,
+                  None if args.no_book else str(args.book)),
     ) as pool:
         for done, (level, strength, score) in enumerate(
             pool.imap_unordered(_play, tasks), start=1
@@ -155,7 +207,7 @@ def main() -> None:
     rows = []
     print(f"\n{'level':<10}{'rating':>8}{'95% interval':>18}   score by Stockfish strength")
     for level, simulations in levels:
-        rating, low, high = fit(outcomes[level])
+        rating, low, high = fit(outcomes[level], lowest=FLOOR, highest=CEILING)
         by_strength = {
             strength: np.mean([s for opp, s in outcomes[level] if opp == strength])
             for strength in strengths
@@ -167,6 +219,7 @@ def main() -> None:
             "rating": round(rating), "low": round(low), "high": round(high),
             "games": len(outcomes[level]),
             "scores": {str(k): round(float(v), 3) for k, v in by_strength.items()},
+            **bounds(low, high),
         })
 
     # One entry per network, merged into whatever is already there: a rating
@@ -179,6 +232,7 @@ def main() -> None:
     measured[name] = {
         "checkpoint": args.checkpoint.name,
         "moveSeconds": args.move_seconds,
+        "book": not args.no_book,
         "levels": rows,
     }
     args.out.write_text(json.dumps({

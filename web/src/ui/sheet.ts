@@ -31,6 +31,13 @@ export interface Rating {
   rating: number;
   low: number;
   high: number;
+  /**
+   * Set when the games only say the level is weaker than this: it lost (nearly)
+   * everything to the weakest reference, so there is no rating to show, only a
+   * ceiling. `above` is the same from the other side.
+   */
+  below?: number;
+  above?: number;
 }
 
 export interface SheetOptions {
@@ -64,6 +71,24 @@ export function approximately(rating: number): number {
   return Math.round(rating / 50) * 50;
 }
 
+/**
+ * A rating in words: "about 2300", or the bound when a bound is all there is.
+ *
+ * Bounds round outwards - a ceiling up, a floor down - so that rounding never
+ * claims more than the games showed.
+ */
+export function ratingText(rating: Rating): string {
+  if (rating.below !== undefined) return `under ${Math.ceil(rating.below / 50) * 50}`;
+  if (rating.above !== undefined) return `over ${Math.floor(rating.above / 50) * 50}`;
+  return `about ${approximately(rating.rating)}`;
+}
+
+/** The figure a rating field such as a PGN header may carry: a rating, never a bound. */
+export function measuredElo(rating: Rating | undefined): number | undefined {
+  if (!rating || rating.below !== undefined || rating.above !== undefined) return undefined;
+  return rating.rating;
+}
+
 export function sheetHtml(options: SheetOptions): string {
   const { entry, settings, networks } = options;
   const ratings = options.ratings?.get(settings.network ?? "");
@@ -75,7 +100,7 @@ export function sheetHtml(options: SheetOptions): string {
     return `<label class="level-card">
       <input type="radio" name="level" value="${index}"${checked(index === settings.level)}>
       <span class="level-name">${level.label}</span>
-      ${rating ? `<span class="level-rating">about ${approximately(rating.rating)}</span>` : ""}
+      ${rating ? `<span class="level-rating">${ratingText(rating)}</span>` : ""}
       <span class="level-note">${level.note}</span>
     </label>`;
   }).join("");

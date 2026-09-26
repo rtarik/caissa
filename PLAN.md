@@ -930,7 +930,7 @@ can set up, openings that vary.
 | 11.3 | **Done.** PGN export and a history of games kept in the browser | chess |
 | 11.4 | **Done.** Board editor and FEN; the engine accepts a starting position | chess |
 | 11.5 | **Done.** Varied openings from a book of our own 2200+ games, and opening names | chess |
-| 11.6 | **First measurement done** (results below). To do after 11.5: measure again with varied openings, and for *both* chess networks - the untrained one needs `--name chess` and will likely sit below Stockfish's 1320 floor, which the fit reports as a bound. A rough rating for each level against Stockfish at known strengths, shown on the level cards | chess |
+| 11.6 | **Done.** A rough rating for each level against Stockfish at known strengths, for both chess networks, with openings from the book as the site plays them; shown on the level cards. The untrained network sits below Stockfish's floor and is shown as a ceiling. Led on to checking every game's level ladder against outside opponents (results below) | chess, then all games |
 
 Decisions taken in the discussion:
 
@@ -1335,8 +1335,35 @@ time than 0.1 s, and a rushed Stockfish might play below its label and flatter u
 replayed against 2300 at five times the time: 52% against 58% before, a fitted 2314 against
 2288. The same number, inside its range.
 
+**Measured again with the opening book** (11.5), since the site now opens from it: the same
+672 games, with each game's first moves drawn from the book as they are against a player.
+
+| Level | Rating | 95% range | Shown as |
+|---|---|---|---|
+| Beginner | 1423 | 1338-1505 | about 1400 |
+| Casual | 1858 | 1783-1933 | about 1850 |
+| Strong | 2047 | 1972-2123 | about 2050 |
+| Master | 2293 | 2213-2374 | about 2300 |
+
+Master did not move; Strong fell 133, which is more than its range allowed and about 2.3
+standard errors of the difference. Either chance (four levels were compared, so one this far out
+is not rare) or the openings really mattering at 200 simulations: the network had always played
+its own favourite lines, and now plays everyone's. The book-based numbers are the ones shown,
+because they describe the engine as it is played.
+
+**The untrained network** (`--name chess`, 1320 and 1500 only, 12 games each) lost 95 of its 96
+games and drew one. A fit with nothing but losses has no maximum: the likelihood keeps rising as
+the rating falls, so it runs to the floor of its range and the only honest statement is the top
+of the interval: under 1000 for every level but Strong, whose draw lifts it to under 1100 (a
+ceiling is rounded up, never down, so rounding cannot tighten it). The first page
+build would have shown that as "about 0"; ratings now carry an explicit `below` (or `above`)
+when the interval reaches an end of the range, and the page shows a bound as a bound and never
+puts one in a PGN header as if it were an Elo.
+
 **The finding: self-play Elo stretches gaps.** Measured against each other (Phase 10's ladder),
-Master beat Strong by 374 Elo. Measured against Stockfish, the two are about 110 apart. The same
+Master beat Strong by 374 Elo. Measured against Stockfish, the two were about 110 apart in the
+first run and about 250 in the second; Strong beat Casual 24-0 head to head, a gap too big to
+measure, and sits about 190 above it against Stockfish. The same
 network at two depths shares every misjudgement, so the deeper search knows exactly where its
 shallower twin will go wrong and aims for it; an outside opponent does not make those tailored
 mistakes. A rating is a statement about a pool of players, and a pool made of one family's
@@ -1464,6 +1491,73 @@ deepens anything. Chess's middle rung was a 24-0 sweep, so it has a floor and no
 That is the same lesson Phase 9.6 met from the other side - search was worth +541 Elo to the
 chess network, more than any training difference in the project - and it is the argument for
 spending the next effort on the search rather than the network.
+
+**Measured again from outside in Phase 11.6** (next section): the upper steps were stretched,
+clearly in chess and Dots & Boxes, and the page now shows both measurements side by side.
+
+### The ladder measured from outside (Phase 11.6)
+
+Chess against Stockfish showed the self-play ladder stretched, so every game with an outsider to
+hand was measured again, `scripts/crossfamily.py`. The four games that kept earlier generations
+from training: the current network's four levels play *only* an older network's four levels, 40
+games a pairing, 16 pairings, 640 games a game. Every rating comes out of one pool fit
+(`fit_pool`: Bradley-Terry by minorise-maximise, anchored at the current Beginner, half a
+virtual draw per pairing), so the gaps between the current levels are made entirely of games
+against a different network. Ranges are bootstrap percentiles, resampling games within each
+pairing, 200 refits.
+
+**First attempt: a yardstick too short.** Generations from a third of the way through training
+(Reversi gen10, Gomoku gen15, Isolation gen10, Dots & Boxes gen20). Reversi's current Master won
+all 160 of its games against gen10, so its rating came from the prior alone, and the top step
+read "+195, range 0 to +323" - a number the games never gave. (The range starting at exactly 0
+is the bootstrap noticing: a resample that drops Strong's two lost games makes Strong a sweeper
+too, and the two become indistinguishable.) Stopped after Reversi and re-run against generations
+chosen, from the training measurements above, as about 200 Elo behind: Reversi gen20, Gomoku
+gen30, Isolation gen20 (its progress was never recorded, so a guess), Dots & Boxes gen40. They
+came out between level and about 350 behind depending on game and level, and no level of any
+game swept. The script now flags a step that touches a sweep instead of printing it. (The Mac
+also slept through six hours of the first attempt, lid closed; the rerun ran under `caffeinate`.)
+
+Outside figure [95% range], then the self-play figure from Phase 10:
+
+| Game (against) | Casual over Beginner | Strong over Casual | Master over Strong | Beginner to Master |
+|---|---|---|---|---|
+| Reversi (gen20) | +353 [+262, +433] / +325 | +320 [+229, +424] / +352 | +181 [+28, +326] / +290 | 854 / 967 |
+| Gomoku (gen30) | +134 [+62, +208] / +168 | +120 [+47, +186] / +154 | +72 [+9, +160] / +58 | 326 / 381 |
+| Isolation (gen20) | +127 [+43, +217] / +147 | +76 [-6, +172] / +108 | +285 [+204, +390] / +223 | 488 / 478 |
+| Dots & Boxes (gen40) | +222 [+140, +310] / +260 | +108 [+22, +207] / +176 | **+31 [-72, +125] / +134** | 361 / 569 |
+| Chess (Stockfish) | +435 / +470 | **+189 / 24-0** | **+246 / +374** | 870 / over 1180 |
+
+**What it says.**
+
+- **The bottom step holds everywhere.** Forty simulations beat none by the same margin whoever
+  the opponent is. Beginner does not search, so there is no twin to exploit: whatever forty
+  simulations buy - not hanging a piece, taking the free box - is worth the same against anyone.
+- **The stretch lives in the upper steps**, where both sides search deeply enough for the
+  stronger to steer towards the particular positions its twin misjudges. Clear in chess against
+  Stockfish, and at the top of Dots & Boxes, where the self-play figure lies outside the outside
+  range: against the older network Master is barely ahead of Strong. Reversi's top step points
+  the same way inside its range; Gomoku and Isolation hold up.
+- **Nine of the twelve non-chess steps came out smaller from outside.** Suggestive rather than
+  conclusive: adjacent steps share a rating (an overestimated Casual makes one step bigger and
+  the next smaller), so they are not twelve independent coin flips.
+- **End to end, self-play overstated four of five games**: Reversi by 13%, Gomoku 17%, Dots &
+  Boxes 58%, chess by at least 36%; Isolation not at all.
+
+**The caveat that stays.** An earlier generation is a relative, not a stranger. It learned from
+the same run's games and shares some blind spots, so its agreement is evidence, not proof, and
+the true gaps may be smaller still. Only chess had a true stranger, which is why its figures are
+the ones to trust most. Four in a Row kept no earlier generation, and its solver only reaches
+positions from ply 18, so it has no outside measurement at all.
+
+**A side finding: Isolation may have stopped improving.** At 40 and 200 simulations gen20 held
+the shipped gen30 level or better - the current Casual scored 48% against gen20's Casual, the
+current Strong 42% against gen20's Strong - while at 600 simulations the current network led
+(62%, inside the noise of 40 games) and its raw policy did clearly better (72%). Forty games
+cannot settle it; a direct match belongs before any more Isolation training.
+
+**For players:** in Dots & Boxes, Master is barely stronger than Strong against anything but
+itself. The page says so through the numbers rather than by renaming a level.
 
 ### Chess, self-play stage 1 — first attempt: a collapse, diagnosed
 
@@ -1669,6 +1763,8 @@ Decisions already argued through. Revisit deliberately, not by accident.
 | The held-out human exam lives in the library, not in the imitation script | More than one stage has to sit it - self-play is graded on it for forgetting - and it has to be identical across stages to be comparable. A measurement that decides things earns tests, and code inside `scripts/` cannot be imported by them. |
 | Self-play from an imitated network rehearses human positions (half of every batch) | Measured, not assumed: without it, five iterations cost -228 Elo by wrecking the value head's calibration (results). A self-play window of a few hundred games is a few hundred value labels, and AlphaZero's answer - 500,000 games in the window - is not available on one laptop. Rehearsal buys the same protection with the 39 M human outcomes already on disk. It is a departure from AlphaZero, and the reason is a hardware budget, not a disagreement. |
 | Strength is judged with search *and* without it | The two disagreed by 209 Elo on the same pair of networks, which is what localised the fault to the value head in one match rather than a day of guessing. `--simulations 0` plays straight from the policy head. |
+| Level gaps are measured from outside the family, and shown beside the self-play ladder | A level measured against its own shallower self shares its blind spots, and chess showed the result stretched against Stockfish. Stockfish rates chess; for the other games an earlier generation of the same network is the outsider, the only one on hand, and it has to be close - at most a few hundred Elo behind - or the current top level wins every game and its gap is the fit's prior, not a measurement. The self-play figures stay on the page, beside the others, because the difference between the two is the lesson. |
+| A rating that reaches the edge of its fit is stored as a bound | A level that lost every game to the weakest reference has no maximum-likelihood rating: the fit runs to the floor of its range and returns a number that means nothing. The file says `below` explicitly, so the page shows "under 1000" and a PGN never carries a bound as an Elo, rather than every reader having to know the fit's range. |
 
 ---
 
@@ -2122,8 +2218,8 @@ not a substitute for the AlphaZero paper.
   players they were measured against. Anchoring a ladder takes opponents with known ratings (here,
   Stockfish at fixed strengths) and a maximum-likelihood fit across all of them at once. And a pool
   of one engine's own variants inflates its gaps: Master over Strong was +374 against itself and
-  about +110 against Stockfish, because a deeper search exploits precisely the blind spots its
-  shallower twin shares with it.
+  about +250 against Stockfish (+110 in a first run without the opening book), because a deeper
+  search exploits precisely the blind spots its shallower twin shares with it.
 - **Measure with search and without it** — the same two networks were 209 Elo apart depending
   on whether search was switched on. That gap is a diagnosis: equal without search and far apart
   with it means the fault is in the value head, not the policy.
@@ -2139,6 +2235,33 @@ not a substitute for the AlphaZero paper.
   +541 Elo for the imitation network. Every training difference measured in this project is
   smaller than that, which sets the priority: protect what search can do before chasing what
   the network knows.
+
+### Phase 11
+
+- **A bound is not a rating** — a level that lost every game to the weakest reference has no
+  maximum-likelihood rating: each lower rating explains the losses a little better, so the fit
+  runs to the floor of its range and reports a number that means nothing. What the games do
+  give is a ceiling, the top of the interval. It is rounded up, never down, since rounding a
+  bound inwards would claim more than was measured.
+- **A pool fit** (Bradley-Terry) — every rating fitted at once from every result, so players
+  who never met are compared through the opponents they shared. Ratings only exist up to a
+  shift - add 100 to everyone and every prediction is unchanged - so one player is anchored at
+  zero. A virtual draw per pairing, the prior, keeps a player who won everything finite, which
+  is exactly why a gap to such a player is the prior talking and not a measurement.
+- **A yardstick must overlap what it measures** — against generation 10, Reversi's current
+  Master won all 160 games, so nothing it did pinned its rating. The reference has to be close
+  enough that every level wins some and loses some; the useful older generations turned out to
+  be the ones at most a few hundred Elo behind.
+- **The bootstrap** — refit the ratings many times on the games resampled with replacement
+  (within each pairing), and take the middle 95% of the answers. It shows how much a result
+  owes to which games happened to be played. Near a sweep it is blunt about it: a resample that
+  drops the only lost game erases the gap entirely, which is why one interval began at exactly 0.
+- **Independent errors add in quadrature** — two ratings each good to ±80 give a gap good to
+  about ±113, not ±160: the chance that both miss the same way at full size is small.
+- **Relatives share blind spots** — an earlier generation from the same training run is only
+  partly an outsider. It learned from the same kind of games and inherits some of the same
+  misjudgements, so agreement with it is evidence rather than proof. Stockfish, a true
+  stranger, is the stronger test, and the one that found the inflation.
 
 ---
 
