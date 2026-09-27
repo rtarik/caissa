@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { gapText, itselfText, olderSteps, stockfishSteps, strengthRows } from "../src/strength";
-import type { Rating } from "../src/ui/sheet";
+import type { Rating } from "../src/ui/choices";
 
 const rated = (entries: [string, Rating][]) => new Map(entries);
 

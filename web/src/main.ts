@@ -27,12 +27,15 @@ import { bookMove, openingOf, parseBook, parseNames, type Book, type BookMove, t
 import { STANDARD_FEN, fenOf, parseFen, problems, withCastling, withPiece, withSideToMove, type Castling, type Setup } from "./editor";
 import { editorBoardHtml, paletteHtml, problemsHtml, rulesHtml, type Tool } from "./ui/editorview";
 import { playerCardHtml, tokenFor, type PlayerCard } from "./ui/players";
-import { measuredElo, ratingText, readSettings, resolveSeat, sheetHtml, type Rating, type Settings } from "./ui/sheet";
+import {
+  START_BUTTON, chooseSetting, levelDetail, levelPickerHtml, measuredElo, newGamePanelHtml, ratingText,
+  resolveSeat, seatPickerHtml, waitsForStart, type Rating, type Settings,
+} from "./ui/choices";
 import {
   olderSteps, stockfishSteps, strengthRows, type Gap, type OutsideStep, type OwnRung, type StrengthRow,
 } from "./strength";
 import type { FromEngine, ToEngine } from "./engine/protocol";
-import { networksByGame, type ModelEntry, type Network } from "./models";
+import { networkByGame, type ModelEntry, type Network } from "./models";
 import { LEVELS, DEFAULT_LEVEL } from "./levels";
 import { parseRoute, type Route } from "./routes";
 
@@ -46,8 +49,8 @@ interface ModelIndex {
 
 let route: Route = { name: "gallery" };
 let trained = new Set<string>();
-/** Each game's networks, newest first, and the one being played. */
-let networks = new Map<string, Network[]>();
+/** Each game's network, and the one being played. */
+let networks = new Map<string, Network>();
 let network: Network | null = null;
 let entry: LadderEntry = LADDER[0];
 let game: Game<unknown> = createGame(entry.key);
@@ -63,10 +66,14 @@ let report: Extract<FromEngine, { kind: "move" }> | null = null;
 let pending: number | null = null;
 let error: string | null = null;
 let showDetails = false;
-/** What the new-game sheet last chose, per visit; Random stays Random. */
-let settings: Settings = { level: DEFAULT_LEVEL, seat: "first", network: null };
-let sheetOpen = false;
-let sheetCancellable = false;
+/** Your choices for the next game, per visit; Random stays Random. */
+let settings: Settings = { level: DEFAULT_LEVEL, seat: "first" };
+/**
+ * Whether the game on the board has begun. Until it has, the cards carry the
+ * choices and the engine waits: your first move begins it, or Start when the
+ * first move is not yours to make.
+ */
+let started = false;
 /**
  * How far into the game the board is showing, while stepping back through it;
  * null shows the game as it stands. Looking back never changes the game.
@@ -84,7 +91,7 @@ let resigned = false;
 const store = browserStore();
 /** Where the game in progress began, when not at the usual start: a FEN, for chess. */
 let startFen: string | null = null;
-/** Where the next game will begin: what the new-game sheet shows, until changed. */
+/** Where the next game will begin, for chess: chosen before a game, kept until changed. */
 let customStart: string | null = null;
 /**
  * The opening book and the opening names, loaded the first time chess is
@@ -239,7 +246,10 @@ function lastMoveKeptTurn(): boolean {
 
 function play(action: number): void {
   if (thinking || !ready || finished() || !humanToMove()) return;
+  // Before the game the board takes a move only when that move is what starts it.
+  if (!started && waitsForStart(settings.seat, true)) return;
   if (!game.legalActions(state())[action]) return;
+  started = true;
   report = null;
   bookNote = null;
   pending = null;
@@ -257,7 +267,7 @@ function play(action: number): void {
  * after a beat - long enough that the turn does not appear to have been skipped.
  */
 function advance(): void {
-  if (!ready || thinking || finished() || route.name !== "play" || sheetOpen || editing) return;
+  if (!ready || !started || thinking || finished() || route.name !== "play" || editing) return;
 
   if (humanToMove()) {
     if (mustPass()) {
@@ -332,17 +342,56 @@ function loadOpenings(): Promise<void> {
   return openingsLoading;
 }
 
-function reset(): void {
+/**
+ * Set up the next game and wait for it to begin. The cards offer their choices
+ * again, and nothing moves until you do - or until Start, when the first move is
+ * not yours.
+ */
+function newGame(): void {
   cancelSearch();
+  started = false;
+  startFen = entry.key === "chess" ? customStart : null;
+  simulations = LEVELS[settings.level].simulations;
+  // Random leaves the last game's sides on the board until Start settles it.
+  if (settings.seat !== "random") humanFirst = settings.seat === "first";
   moves = [];
   gameId = null;
   startedAt = null;
   resigned = false;
   viewing = null;
   report = null;
+  bookNote = null;
   pending = null;
+  newGameArmed = 0;
+  render();
+}
+
+/** Start: settle a Random side, then let whoever opens, open. */
+function begin(): void {
+  if (started) return;
+  humanFirst = resolveSeat(settings.seat);
+  started = true;
   render();
   advance();
+}
+
+/**
+ * A game in progress takes two clicks to leave, as clearing the history does:
+ * the first arms the button, a second within a few seconds starts the next
+ * game. There is no dialog to cancel, so a single stray click has to cost
+ * nothing. A game that is over, or where you have not moved yet, has nothing
+ * to lose and goes at once.
+ */
+let newGameArmed = 0;
+function newGameClicked(): void {
+  const inProgress = started && !finished() && yourMoveMade();
+  if (inProgress && Date.now() - newGameArmed >= 4000) {
+    newGameArmed = Date.now();
+    render();
+    window.setTimeout(render, 4000);
+    return;
+  }
+  newGame();
 }
 
 /** Take back the player's last move, and the engine's reply with it. */
@@ -351,6 +400,8 @@ function undo(): void {
   if (target === null) return;
   cancelSearch();
   moves = moves.slice(0, target);
+  // Taken back to its first position, the game has not begun: the choices return.
+  if (moves.length === 0) started = false;
   resigned = false;
   viewing = null;
   report = null;
@@ -456,7 +507,6 @@ function currentRecord(): GameRecord | null {
     level: level.label,
     simulations: level.simulations,
     network: network?.file ?? entry.key,
-    networkLabel: network?.label ?? "",
     rating: measuredElo(ratings.get(network?.file ?? "")?.get(level.label)),
     result: outcome.result,
     termination: outcome.termination,
@@ -512,20 +562,12 @@ function applyRoute(): void {
     document.title = `Caissa — ${found.title}`;
     if (changedGame) {
       entry = found;
-      network = networks.get(entry.key)?.[0] ?? null;
+      network = networks.get(entry.key) ?? null;
       game = createGame(entry.key);
       view = VIEWS[entry.key];
-      cancelSearch();
-      moves = [];
-      startFen = null;
-      viewing = null;
-      report = null;
-      pending = null;
-      settings = { ...settings, network: network?.file ?? null };
       if (entry.key === "chess") void loadOpenings();
-      render();
+      newGame();
       loadEngine();
-      openSheet(false);
       return;
     }
   } else {
@@ -570,7 +612,8 @@ app.innerHTML = `
           <div class="status" id="status"></div>
         </div>
         <aside class="side">
-          <section class="panel game-panel">
+          <section class="panel new-game-panel" id="new-game-panel" hidden></section>
+          <section class="panel game-panel" id="game-panel">
             <div class="move-head">
               <span>Moves</span>
               <span class="move-where" id="move-where"></span>
@@ -608,7 +651,10 @@ app.innerHTML = `
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4m0 0h11l-2 4 2 4H5"/></svg>
                   Resign
                 </button>
-                <a class="quiet-link" id="games-link" href="#/games/chess">Your games</a>
+                <span class="footer-links">
+                  <button class="quiet-link" id="setup-link">Set up a position</button>
+                  <a class="quiet-link" id="games-link" href="#/games/chess">Your games</a>
+                </span>
               </div>
             </div>
           </section>
@@ -642,14 +688,13 @@ app.innerHTML = `
             </label>
             <p class="fen-error" id="editor-fen-error" hidden></p>
             <div id="editor-problems"></div>
-            <div class="sheet-actions">
+            <div class="editor-actions">
               <button class="button ghost" data-editor="cancel">Cancel</button>
               <button class="button primary" data-editor="use" id="editor-use">Use this position</button>
             </div>
           </section>
         </aside>
       </div>
-      <div class="sheet-backdrop" id="sheet" hidden></div>
     </section>
 
     <section class="screen" id="games" hidden></section>
@@ -678,7 +723,10 @@ const openingNameEl = document.getElementById("opening-name")!;
 const undoEl = document.getElementById("undo") as HTMLButtonElement;
 const navEls = [...document.querySelectorAll<HTMLButtonElement>("[data-nav]")];
 const youEl = document.getElementById("you")!;
-const sheetEl = document.getElementById("sheet")!;
+const newGamePanelEl = document.getElementById("new-game-panel")!;
+const gamePanelEl = document.getElementById("game-panel")!;
+const newGameEl = document.getElementById("new") as HTMLButtonElement;
+const setupLinkEl = document.getElementById("setup-link") as HTMLButtonElement;
 const playTitleEl = document.getElementById("play-title")!;
 const aboutEl = document.getElementById("about")!;
 const gamesEl = document.getElementById("games")!;
@@ -720,7 +768,7 @@ boardEl.addEventListener("click", (event) => {
     render();
   }
 });
-document.getElementById("new")!.addEventListener("click", () => openSheet(true));
+newGameEl.addEventListener("click", newGameClicked);
 undoEl.addEventListener("click", undo);
 resignEl.addEventListener("click", resign);
 copyEl.addEventListener("click", () => {
@@ -760,7 +808,7 @@ for (const button of navEls) {
   button.addEventListener("click", () => step(button.dataset.nav!));
 }
 document.addEventListener("keydown", (event) => {
-  if (route.name !== "play" || sheetOpen || editing) return;
+  if (route.name !== "play" || editing) return;
   // The target may be the document itself, which has no closest(): not an element, not typing.
   const target = event.target instanceof Element ? event.target : null;
   const typing = target?.closest("input, select, textarea, [contenteditable]");
@@ -780,38 +828,35 @@ function step(direction: string): void {
   else if (direction === "forward") showPly(at + 1);
   else showPly(moves.length);
 }
-sheetEl.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const form = event.target as HTMLFormElement;
-  const chosen = readSettings(new FormData(form), settings);
-  closeSheet();
-  startGame(chosen);
+// The choices on the cards, while the game waits to begin.
+for (const card of [opponentEl, youEl]) {
+  card.addEventListener("change", (event) => {
+    const input = event.target;
+    if (started || !(input instanceof HTMLInputElement)) return;
+    settings = chooseSetting(settings, input.name, input.value);
+    simulations = LEVELS[settings.level].simulations;
+    // Picking a side turns the board round at once; Random waits for Start.
+    if (settings.seat !== "random") humanFirst = settings.seat === "first";
+    // A half-made move (Isolation's step) belongs to the choices it was made under.
+    pending = null;
+    render();
+  });
+}
+youEl.addEventListener("click", (event) => {
+  if ((event.target as HTMLElement).closest("[data-start]")) begin();
 });
-sheetEl.addEventListener("change", (event) => {
-  // Ratings belong to a network, so switching the engine redraws the levels.
-  if ((event.target as HTMLInputElement).name === "network") refreshSheet();
-});
-sheetEl.addEventListener("click", (event) => {
-  const target = event.target as HTMLElement;
-  const form = sheetEl.querySelector<HTMLFormElement>("form");
-  if (target.closest("[data-sheet='setup']") && form) {
-    // Keep what was chosen so far, then set up the position.
-    settings = readSettings(new FormData(form), settings);
-    closeSheet(false);
-    openEditor(customStart ?? STANDARD_FEN);
-    return;
-  }
-  if (target.closest("[data-sheet='standard']")) {
+newGamePanelEl.addEventListener("click", (event) => {
+  const action = (event.target as HTMLElement).closest<HTMLElement>("[data-setup]")?.dataset.setup;
+  if (action === "edit") openEditor(customStart ?? STANDARD_FEN);
+  else if (action === "standard") {
     customStart = null;
-    refreshSheet();
-    return;
+    newGame();
   }
-  // The backdrop itself, or the Cancel button - not a click inside the sheet.
-  if (target === sheetEl || target.closest("[data-sheet='cancel']")) closeSheet();
 });
+// Mid-game or after it, the editor opens on the position the game has reached.
+setupLinkEl.addEventListener("click", () => openEditor((state() as ChessState).fen));
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && sheetOpen) closeSheet();
-  else if (event.key === "Escape" && editing) leaveEditor(false);
+  if (event.key === "Escape" && editing) leaveEditor(false);
 });
 
 // ------------------------------------------------------------------- editor
@@ -867,7 +912,11 @@ function openEditor(fen: string): void {
   renderEditor(true);
 }
 
-/** Back to the sheet, keeping the position if asked and if it can be played. */
+/**
+ * Close the editor. Kept, a playable position becomes where the next game
+ * begins, and that game is set up; cancelled, the board goes back to whatever
+ * it was doing - a game in progress carries on where it was.
+ */
 function leaveEditor(keep: boolean): void {
   if (keep && editing) {
     if (problems(editing).length) return;
@@ -876,7 +925,12 @@ function leaveEditor(keep: boolean): void {
   editing = null;
   editorEl.hidden = true;
   layoutEl.hidden = false;
-  openSheet(sheetCancellable);
+  if (keep) {
+    newGame();
+    return;
+  }
+  render();
+  advance();
 }
 
 function renderEditor(rewriteFen: boolean): void {
@@ -902,79 +956,6 @@ detailsToggle.addEventListener("click", () => {
 });
 window.addEventListener("hashchange", applyRoute);
 
-/**
- * Open the new-game sheet over the board.
- *
- * Rendered here and not in render(): render runs on every engine message, and
- * re-rendering the form would throw away a choice the player is halfway through.
- */
-function openSheet(cancellable: boolean): void {
-  sheetCancellable = cancellable;
-  drawSheet(settings);
-  sheetOpen = true;
-  sheetEl.hidden = false;
-  // Everything behind the sheet stops taking focus and clicks until it closes.
-  for (const element of document.querySelectorAll<HTMLElement>(".play-head, .layout")) {
-    element.inert = true;
-  }
-  sheetEl.querySelector<HTMLButtonElement>("button[type=submit]")?.focus();
-}
-
-function drawSheet(chosen: Settings): void {
-  sheetEl.innerHTML = sheetHtml({
-    entry,
-    settings: chosen,
-    networks: (networks.get(entry.key) ?? []).map((n) => ({ file: n.file, label: n.label })),
-    ratings,
-    cancellable: sheetCancellable,
-    start: entry.key === "chess" ? { fen: customStart } : undefined,
-  });
-}
-
-/**
- * Redraw an open sheet - when ratings arrive after it opened, say - keeping
- * whatever the player has already picked in it rather than the saved settings.
- */
-function refreshSheet(): void {
-  const form = sheetEl.querySelector<HTMLFormElement>("form");
-  if (!sheetOpen || !form) return;
-  const focused = document.activeElement === sheetEl.querySelector("button[type=submit]");
-  drawSheet(readSettings(new FormData(form), settings));
-  if (focused) sheetEl.querySelector<HTMLButtonElement>("button[type=submit]")?.focus();
-}
-
-function closeSheet(resume = true): void {
-  sheetOpen = false;
-  sheetEl.hidden = true;
-  for (const element of document.querySelectorAll<HTMLElement>(".play-head, .layout")) {
-    element.inert = false;
-  }
-  if (!resume) return;
-  // Closing without choosing still starts the game that was waiting.
-  render();
-  advance();
-}
-
-function startGame(chosen: Settings): void {
-  settings = chosen;
-  startFen = entry.key === "chess" ? customStart : null;
-  simulations = LEVELS[settings.level].simulations;
-  humanFirst = resolveSeat(settings.seat);
-  const next = networks.get(entry.key)?.find((n) => n.file === settings.network);
-  if (next && next.file !== network?.file) {
-    // A different network is a different opponent: load it, then play.
-    network = next;
-    cancelSearch();
-    moves = [];
-    viewing = null;
-    report = null;
-    pending = null;
-    loadEngine();
-    return;
-  }
-  reset();
-}
-
 /** The moves up to the position on the board, one array per point, so views can cache on it. */
 let shownMoves: { moves: number[]; ply: number; slice: number[] } = { moves, ply: 0, slice: [] };
 
@@ -988,7 +969,9 @@ function context(ply = shownPly()) {
     shownMoves = { moves, ply, slice: ply === moves.length ? moves : moves.slice(0, ply) };
   }
   const looking = ply !== moves.length;
-  const locked = looking || thinking || finished() || !humanToMove() || !ready;
+  // Before the game, a board that waits for Start takes no move.
+  const waiting = !started && waitsForStart(settings.seat, humanToMove());
+  const locked = looking || thinking || finished() || !humanToMove() || !ready || waiting;
   const { states } = positions();
   return {
     game,
@@ -1028,9 +1011,7 @@ function code(path: string, label = path): string {
 }
 
 function renderAbout(): void {
-  const generations = new Map(
-    [...networks.entries()].map(([key, list]) => [key, list[0]?.generation ?? null]),
-  );
+  const generations = new Map([...networks.entries()].map(([key, n]) => [key, n.generation]));
 
   aboutEl.innerHTML = `
     <div class="prose">
@@ -1184,12 +1165,6 @@ function renderAbout(): void {
         likely (${code("src/caissa/rating.py", "rating.py")}).
       </p>
       ${chessRatingsTable()}
-      <p>
-        The untrained network lost all but one of its games, even against the
-        weakest setting Stockfish has, so it gets a ceiling instead of a rating. A
-        rating is a place between the players you beat and the players you lose
-        to; with nobody below it, the games can only say it is somewhere under.
-      </p>
       <p>
         Two honest caveats. Stockfish's strength setting is calibrated against other
         engines rather than people, so these sit on roughly the FIDE scale rather
@@ -1346,32 +1321,21 @@ function renderGames(): void {
   `;
 }
 
-/**
- * The chess levels' measured ratings as a table, one column per engine that has
- * them, once they have loaded.
- */
+/** The chess levels' measured ratings, as a table, once they have loaded. */
 function chessRatingsTable(): string {
-  const columns = (networks.get("chess") ?? []).flatMap((network) => {
-    const measured = ratings.get(network.file);
-    return measured?.size ? [{ label: network.label, measured }] : [];
-  });
-  if (!columns.length) return "";
-  const cell = (rating: Rating | undefined) => {
-    if (!rating) return "<td></td>";
+  const measured = ratings.get(networks.get("chess")?.file ?? "");
+  if (!measured?.size) return "";
+  const rows = LEVELS.map((level) => {
+    const rating = measured.get(level.label);
+    if (!rating) return "";
     // A bound has no range to show; the bound is the whole of what was measured.
-    const range = measuredElo(rating) === undefined
-      ? ""
-      : `<br><span class="muted">${rating.low}–${rating.high}</span>`;
-    return `<td class="gain">${ratingText(rating)}${range}</td>`;
-  };
-  const rows = LEVELS.map((level) => `<tr><td>${level.label}</td>${
-    columns.map((column) => cell(column.measured.get(level.label))).join("")
-  }</tr>`).join("");
+    const range = measuredElo(rating) === undefined ? "" : `${rating.low}–${rating.high}`;
+    return `<tr><td>${level.label}</td><td class="gain">${ratingText(rating)}</td><td>${range}</td></tr>`;
+  }).join("");
   return `<table class="levels">
-    <thead><tr><th>Level</th>${columns.map((column) => `<th>${column.label}</th>`).join("")}</tr></thead>
+    <thead><tr><th>Level</th><th>Rating</th><th>95% range</th></tr></thead>
     <tbody>${rows}</tbody>
-  </table>
-  <p class="teaches">Under each rating, the range it falls in with 95% confidence.</p>`;
+  </table>`;
 }
 
 interface Ladders {
@@ -1452,8 +1416,24 @@ function render(): void {
   playTitleEl.innerHTML = `<span class="play-icon">${iconFor(entry.key)}</span>${entry.title}`;
 
   const [engine, you] = playerCards();
-  opponentEl.innerHTML = playerCardHtml(engine, tokenFor(entry.key, "engine", !humanFirst));
-  youEl.innerHTML = playerCardHtml(you, tokenFor(entry.key, "you", humanFirst));
+  const focus = focusedChoice();
+  setHtml(opponentEl, playerCardHtml(engine, tokenFor(entry.key, "engine", !humanFirst)));
+  setHtml(youEl, playerCardHtml(you, tokenFor(entry.key, "you", humanFirst)));
+  if (focus) (opponentEl.querySelector<HTMLElement>(focus) ?? youEl.querySelector<HTMLElement>(focus))?.focus();
+
+  // Before the game the panel says what starts it; from the first move on, it keeps the game.
+  newGamePanelEl.hidden = started;
+  gamePanelEl.hidden = !started;
+  if (!started) {
+    setHtml(newGamePanelEl, newGamePanelHtml({
+      entry,
+      settings,
+      youMoveFirst: humanToMove(),
+      start: entry.key === "chess" ? { fen: startFen } : undefined,
+      rated: Boolean(ratings.get(network?.file ?? "")?.size),
+      saved: entry.key === "chess" ? loadGames(store).filter((record) => record.game === "chess").length : undefined,
+    }));
+  }
 
   boardEl.className = `board ${view.layout}${ctx.locked ? " locked" : ""}${viewing !== null ? " looking-back" : ""}`;
   boardEl.innerHTML = view.board(ctx);
@@ -1475,41 +1455,69 @@ function render(): void {
 /**
  * The two players, as the cards above and below the board show them.
  *
- * Whose turn it is lives here now, on the card of the side to move, rather than
- * in a sentence under the board; the status line keeps what needs a sentence.
+ * Whose turn it is lives here, on the card of the side to move, rather than in
+ * a sentence under the board; the status line keeps what needs a sentence.
+ * Before the game each card also carries its choice, and your card the Start
+ * button when the game waits for one.
  */
 function playerCards(): [PlayerCard, PlayerCard] {
   const level = LEVELS[settings.level];
   const rating = ratings.get(network?.file ?? "")?.get(level.label);
+  const choosing = !started;
+  const waiting = choosing && waitsForStart(settings.seat, humanToMove());
   const outcome = ready ? game.terminalValue(state()) : null;
   const over = resigned || outcome !== null;
   const humanWon = !resigned && over && outcome !== 0 && (outcome! > 0) === humanToMove();
   const engineWon = resigned || (over && outcome !== 0 && !humanWon);
-  const yourTurn = ready && !over && humanToMove();
+  const yourTurn = ready && !over && humanToMove() && !waiting;
 
   const [first, second] = entry.seats ?? ["", ""];
-  const yourSide = entry.seats
-    ? (humanFirst ? first : second)
-    : (humanFirst ? "Moving first" : "Moving second");
+  const yourSide = choosing && settings.seat === "random"
+    ? "A coin decides when you start"
+    : entry.seats
+      ? (humanFirst ? first : second)
+      : (humanFirst ? "Moving first" : "Moving second");
 
   return [
     {
       side: "engine",
-      name: `Caissa <span class="player-level">${level.label}</span>`,
-      detail: rating ? `Rated ${ratingText(rating)}` : level.note,
+      name: choosing ? "Caissa" : `Caissa <span class="player-level">${level.label}</span>`,
+      detail: levelDetail(level, rating, choosing),
       status: thinking ? "Thinking…" : "",
-      active: ready && !over && !humanToMove(),
+      active: ready && started && !over && !humanToMove(),
       winner: engineWon,
+      controls: choosing ? levelPickerHtml(settings.level) : undefined,
     },
     {
       side: "you",
       name: "You",
       detail: yourSide,
-      status: yourTurn && pending === null ? "Your move" : "",
+      status: waiting ? START_BUTTON : yourTurn && pending === null ? "Your move" : "",
       active: yourTurn,
       winner: humanWon,
+      controls: choosing ? seatPickerHtml(entry, settings.seat) : undefined,
     },
   ];
+}
+
+/**
+ * The choice on a player card that has the keyboard, as a selector that finds
+ * it again once the card has been redrawn: arrowing through a switch redraws the
+ * card on every step, and focus must not fall out of it.
+ */
+function focusedChoice(): string | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || !(opponentEl.contains(active) || youEl.contains(active))) return null;
+  if (active instanceof HTMLInputElement) return `input[name="${active.name}"]:checked`;
+  return active.matches("[data-start]") ? "[data-start]" : null;
+}
+
+/** Markup last written to each element, so an unchanged redraw leaves focus and hover alone. */
+const drawn = new WeakMap<Element, string>();
+function setHtml(element: HTMLElement, html: string): void {
+  if (drawn.get(element) === html) return;
+  drawn.set(element, html);
+  element.innerHTML = html;
 }
 
 /**
@@ -1561,6 +1569,9 @@ function renderMoves(): void {
     button.disabled = nav === "first" || nav === "back" ? at === 0 : at === moves.length;
   }
   undoEl.disabled = undoPoint() === null;
+  // Over, there is nothing to leave; in progress, the first click only arms it.
+  newGameEl.textContent = finished() ? "Play again"
+    : Date.now() - newGameArmed < 4000 ? "Leave this game?" : "New game";
 
   chessActionsEl.hidden = entry.key !== "chess";
   if (entry.key === "chess") {
@@ -1587,6 +1598,8 @@ function statusText(): string {
     return `<span class="muted">Looking back at move ${viewing} of ${moves.length}.</span>
       <button class="quiet-link" data-nav-inline="last">Back to the game</button>`;
   }
+  // Before the game the cards and the panel say what happens next.
+  if (!started) return "";
 
   if (resigned) return `<span class="result">You resigned.</span>`;
   const outcome = game.terminalValue(state());
@@ -1646,7 +1659,7 @@ function analysisPanel(): string {
 async function start(): Promise<void> {
   try {
     const index: ModelIndex = await fetch(asset("models/index.json")).then((r) => r.json());
-    networks = networksByGame(index.models);
+    networks = networkByGame(index.models);
     trained = new Set(networks.keys());
   } catch {
     // No index: fall back to offering the games that ship a view, so a missing
@@ -1658,18 +1671,16 @@ async function start(): Promise<void> {
   entry = LADDER.find((item) => item.key === key && trained.has(item.key))
     ?? LADDER.find((item) => trained.has(item.key))
     ?? LADDER[0];
-  network = networks.get(entry.key)?.[0] ?? null;
+  network = networks.get(entry.key) ?? null;
   game = createGame(entry.key);
   view = VIEWS[entry.key];
-  settings = { ...settings, network: network?.file ?? null };
   void loadRatings();
   render();
   if (requested.name === "play") {
     route = { name: "play", key: entry.key };
     if (entry.key === "chess") void loadOpenings();
-    render();
+    newGame();
     loadEngine();
-    openSheet(false);
   } else {
     applyRoute();
   }
@@ -1694,7 +1705,6 @@ async function loadRatings(): Promise<void> {
     ]));
     // Both the play screen and the guide show them; the gallery does not.
     if (route.name !== "gallery") render();
-    refreshSheet();
   } catch {
     ratings = new Map();
   }

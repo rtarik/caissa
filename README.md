@@ -67,15 +67,15 @@ Chess learns first from human games. This downloads a month of Lichess's public 
 .venv/bin/python scripts/lichess.py 2020-01
 ```
 
-Then train an imitation stage on the converted months, and export it beside the earlier ones —
-the page offers every exported stage:
+Then train an imitation stage on the converted months, and export it — each game has one
+opponent on the page, and where more than one network is exported, the newest is played:
 
 ```bash
 .venv/bin/python scripts/imitate.py --months 2020-01 --stage 1
 ```
 
 ```bash
-.venv/bin/python scripts/export.py models/chess-imitation1.pt --name chess-imitation1 --label "Imitation 1"
+.venv/bin/python scripts/export.py models/chess-imitation1.pt --name chess-imitation1
 ```
 
 Self-play continues from there, at a lower learning rate, carrying its replay window from
@@ -127,14 +127,10 @@ playing each level against the one below it. It writes `web/public/levels.json`,
 That ladder flatters: a level playing its own shallower self knows exactly where it will go
 wrong. So each ladder is also measured from outside. Chess levels play Stockfish at known
 strengths (`stockfish` on the path, e.g. from Homebrew), which gives them ratings on a real
-scale - `--name` files them under the network's name on the site:
+scale, filed under the network's name on the site (`--name`, if it differs from the checkpoint's):
 
 ```bash
 .venv/bin/python scripts/stockfish.py --games 24 --workers 10
-```
-
-```bash
-.venv/bin/python scripts/stockfish.py --checkpoint models/chess-gen0000.pt --name chess --strengths 1320 1500 --games 12
 ```
 
 The other games keep earlier generations from training, and `scripts/crossfamily.py` has the

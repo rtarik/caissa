@@ -931,11 +931,14 @@ can set up, openings that vary.
 | 11.4 | **Done.** Board editor and FEN; the engine accepts a starting position | chess |
 | 11.5 | **Done.** Varied openings from a book of our own 2200+ games, and opening names | chess |
 | 11.6 | **Done.** A rough rating for each level against Stockfish at known strengths, for both chess networks, with openings from the book as the site plays them; shown on the level cards. The untrained network sits below Stockfish's floor and is shown as a ceiling. Led on to checking every game's level ladder against outside opponents (results below) | chess, then all games |
+| 11.7 | **Done.** One opponent per game. The untrained chess network, under 1000 at every level, is no longer shipped, and with it go the engine choice and the variant names; old saved games keep the name of the engine they were played against | chess |
+| 11.8 | **Done.** No popup. The level switch sits on Caissa's card and the side switch on yours until the game begins; your first move begins it, or Start when the first move is not yours. The side panel says what starts the game before it, and keeps the moves during it; leaving a game in progress takes two clicks | all games |
 
 Decisions taken in the discussion:
 
 - **A sheet, not a setup page.** New game opens over the board; the board is never more than one
-  click away.
+  click away. *Superseded in 11.8:* the choices moved onto the player cards, and nothing covers the
+  board at all.
 - **Undo and browsing are for every game**, since every game is a list of moves. PGN, the editor
   and openings are chess only.
 - **Stockfish is the only rating reference.** A rough estimate is the goal; Stockfish's
@@ -959,6 +962,23 @@ window's height as well as its width, because sized by width alone it pushed you
 the fold on a laptop. Two bugs found on the way, both by looking: the king on your card was black
 when you played White (the piece colours were defined inside the board's scope only), and the
 stylesheet guard from Phase 10 caught hidden radio inputs switched off with `pointer-events`.
+
+**11.8, as built.** The sheet asked every question at once, over the board, before anything
+could happen - and on a phone, once it was gone, its replacement would have had to live in the
+side panel, below the fold. So each choice now sits on the card it describes, above and below
+the board, and only while it is a choice: the page opens ready to play at Master with you moving
+first, so the first move is also the first click. The game waits until it has begun - your first
+move, or Start when Caissa is to open (a Black side, a set-up position with the other side to
+move) or when Random has not yet thrown its coin; picking a side turns the board round at once.
+Undo back to the first position un-begins the game and the choices return. Without a dialog
+there is no Cancel, so leaving a game in progress takes two clicks within four seconds, as
+clearing the history does; a finished game offers Play again at once. The editor opens from the
+new-game panel, and also mid-game on the position reached - cancelling returns to the game,
+keeping a position starts the next one from it. Three things the tests or the browser caught:
+`Number("")` is 0, so an empty level value would have meant Beginner (the old sheet's reader had
+the same flaw, never exercised); arrowing through a switch redraws its card on every step, so
+focus is found again after each redraw, and a redraw that changes nothing no longer touches the
+page at all; and a half-made Isolation move had to be dropped when a choice changes under it.
 
 ---
 
@@ -1358,7 +1378,8 @@ of the interval: under 1000 for every level but Strong, whose draw lifts it to u
 ceiling is rounded up, never down, so rounding cannot tighten it). The first page
 build would have shown that as "about 0"; ratings now carry an explicit `below` (or `above`)
 when the interval reaches an end of the range, and the page shows a bound as a bound and never
-puts one in a PGN header as if it were an Elo.
+puts one in a PGN header as if it were an Elo. On this result the untrained network left the
+site altogether (11.7): four levels all under 1000 are not four opponents worth offering.
 
 **The finding: self-play Elo stretches gaps.** Measured against each other (Phase 10's ladder),
 Master beat Strong by 374 Elo. Measured against Stockfish, the two were about 110 apart in the
@@ -1764,6 +1785,8 @@ Decisions already argued through. Revisit deliberately, not by accident.
 | Self-play from an imitated network rehearses human positions (half of every batch) | Measured, not assumed: without it, five iterations cost -228 Elo by wrecking the value head's calibration (results). A self-play window of a few hundred games is a few hundred value labels, and AlphaZero's answer - 500,000 games in the window - is not available on one laptop. Rehearsal buys the same protection with the 39 M human outcomes already on disk. It is a departure from AlphaZero, and the reason is a hardware budget, not a disagreement. |
 | Strength is judged with search *and* without it | The two disagreed by 209 Elo on the same pair of networks, which is what localised the fault to the value head in one match rather than a day of guessing. `--simulations 0` plays straight from the policy head. |
 | Level gaps are measured from outside the family, and shown beside the self-play ladder | A level measured against its own shallower self shares its blind spots, and chess showed the result stretched against Stockfish. Stockfish rates chess; for the other games an earlier generation of the same network is the outsider, the only one on hand, and it has to be close - at most a few hundred Elo behind - or the current top level wins every game and its gap is the fit's prior, not a measurement. The self-play figures stay on the page, beside the others, because the difference between the two is the lesson. |
+| Choices on the cards, not in a dialog | A dialog asks every question at once and hides the board while it does; on a phone its natural replacement, the side panel, sits below the fold. On the cards, each choice is beside what it changes and in view at any width, and sensible defaults make the first move the first click. The price of losing the dialog is its Cancel, paid back by a two-click leave for a game in progress. |
+| One network per game on the site | Chess used to ship its untrained network beside the imitation one, so the owner could feel the difference training makes. Measured against Stockfish, all four of its levels sit under 1000: not an opponent anyone would choose, and a choice of engine is a question every player has to read past for an answer only the owner wanted. The page plays the newest network the index lists for a game; saved games keep the engine name they were recorded with, since a game against the untrained network was a different game. |
 | A rating that reaches the edge of its fit is stored as a bound | A level that lost every game to the weakest reference has no maximum-likelihood rating: the fit runs to the floor of its range and returns a number that means nothing. The file says `below` explicitly, so the page shows "under 1000" and a PGN never carries a bound as an Elo, rather than every reader having to know the fit's range. |
 
 ---

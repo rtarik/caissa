@@ -30,9 +30,13 @@ export interface GameRecord {
   /** The level's name, "Master", and how hard it searched. */
   level: string;
   simulations: number;
-  /** The network played, by file, and as the page names it. */
+  /** The network played, by file. */
   network: string;
-  networkLabel: string;
+  /**
+   * The engine's name, in records from when chess offered a choice of two; a
+   * record keeps the opponent it was actually played against.
+   */
+  networkLabel?: string;
   /** The level's measured rating when the game was played, if it had one. */
   rating?: number;
   result: Result;

@@ -1033,54 +1033,39 @@ body[data-game="chess"] {
 .player-token.pawn.engine { color: var(--engine); }
 .player-token.piece .chess-piece { width: 32px; height: 32px; }
 
-/* ------------------------------------------------------------------ sheet */
+/* ---------------------------------------------------------------- choices */
 
-.sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgb(8 10 14 / 0.62);
-  animation: fade-in 160ms ease;
-}
-.sheet-backdrop[hidden] { display: none; }
-.sheet {
-  width: min(600px, 100%);
-  max-height: calc(100dvh - 40px);
-  overflow-y: auto;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 26px;
-  box-shadow: 0 24px 60px rgb(0 0 0 / 0.4);
-  animation: rise 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-@keyframes fade-in { from { opacity: 0; } }
-@keyframes rise { from { opacity: 0; transform: translateY(12px); } }
-@media (prefers-reduced-motion: reduce) {
-  .sheet-backdrop, .sheet { animation: none; }
-}
-/* On a phone the sheet comes up from the bottom, where the thumb already is. */
-@media (max-width: 560px) {
-  .sheet-backdrop { place-items: end stretch; padding: 0; }
-  .sheet { width: 100%; border-radius: 20px 20px 0 0; padding: 22px 18px 26px; max-height: 92dvh; }
+/* Before a game the cards carry the choices, each switch on a row of its own. */
+.player-card.choosing { flex-wrap: wrap; }
+.player-controls { flex-basis: 100%; min-width: 0; }
+.picker { border: 0; margin: 0; padding: 0; min-width: 0; }
+.picker .segmented { border-radius: 11px; }
+.picker .segmented span { padding: 7px 4px; border-radius: 8px; font-size: 14px; }
+.player-status .button { font-size: 14px; }
+/* A name for screen readers that takes no room on the screen. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.sheet-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 22px; }
-.sheet-icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+.new-game-panel { display: grid; gap: 12px; }
+.new-game-panel[hidden], .game-panel[hidden] { display: none; }
+/* Headed like the move list it stands in for: "New game" before, "Moves" after. */
+.panel h2.new-game-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 620;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
 }
-.sheet-icon .icon { width: 28px; height: 28px; }
-.sheet-head h2 { font-size: 22px; font-weight: 660; letter-spacing: -0.02em; margin: 2px 0 4px; }
-.sheet-rule { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.45; }
+.new-game-rule { margin: 0; font-size: 15px; line-height: 1.45; }
+.new-game-hint { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.new-game-panel .quiet-link { justify-self: start; font-size: 14px; }
 
 .choice-group { border: 0; margin: 0 0 22px; padding: 0; min-width: 0; }
 .choice-group legend {
@@ -1092,33 +1077,6 @@ body[data-game="chess"] {
 }
 .choice-note { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
 
-/* Radio buttons underneath, drawn as cards: the keyboard and the form still work. */
-.level-cards { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@media (max-width: 560px) { .level-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.level-card {
-  position: relative;
-  display: grid;
-  align-content: start;
-  gap: 3px;
-  padding: 13px 13px 12px;
-  border-radius: 13px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--ink) 3%, transparent);
-  cursor: pointer;
-  transition: border-color 140ms ease, background 140ms ease;
-}
-.level-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
-/* Hidden, not removed: the label takes the click and the input keeps the state. */
-.level-card input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.level-card:has(input:checked) {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-.level-card:has(input:focus-visible) { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
-.level-name { font-size: 16px; font-weight: 640; }
-.level-rating { font-size: 13px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; }
-.level-note { font-size: 12.5px; line-height: 1.35; color: var(--muted); }
 
 .segmented {
   display: grid;
@@ -1149,8 +1107,8 @@ body[data-game="chess"] {
 }
 .segmented input:focus-visible + span { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
 
-.sheet-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
-.sheet-actions .primary { min-width: 120px; }
+.editor-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+.editor-actions .primary { min-width: 120px; }
 
 .game-panel { display: grid; gap: 10px; }
 /* On the board a black piece sits on a light square; on a dark card it would
@@ -1231,9 +1189,12 @@ body[data-game="chess"] {
 .chess-actions { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
 .chess-actions[hidden] { display: none; }
 .export-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
-.chess-footer { display: flex; align-items: center; justify-content: space-between; }
+.chess-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; }
 .chess-footer .button { display: inline-flex; align-items: center; gap: 6px; }
 .chess-footer .quiet-link { font-size: 14px; }
+/* A narrow panel wraps between the links, never inside one. */
+.footer-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.footer-links > * { white-space: nowrap; }
 
 .games-note { color: var(--muted); font-size: 15px; max-width: 62ch; margin: 0 0 18px; }
 .games-empty { color: var(--muted); font-size: 15px; padding: 28px 0; }
@@ -1356,24 +1317,10 @@ body[data-game="chess"] {
   .setup-ok { color: #1f7a50; }
 }
 
-/* The sheet's picture of a set-up position. */
-.start-row { display: flex; align-items: center; gap: 14px; }
-.start-text { display: grid; gap: 8px; }
+/* Where a chess game will begin; the board itself shows the position. */
+.start-row { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
 .start-what { font-size: 15px; font-weight: 560; }
 .start-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
-.mini-board {
-  flex: none;
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  width: 104px;
-  height: 104px;
-  border-radius: 6px;
-  overflow: hidden;
-  box-shadow: 0 0 0 1px var(--line);
-}
-.mini-sq { display: grid; place-items: center; background: #e3e7ef; }
-.mini-sq.dark { background: #9ba8c1; }
-.mini-sq .chess-piece { width: 100%; height: 100%; stroke-width: 4; filter: none; }
 
 /* ------------------------------------------------------------- openings */
 

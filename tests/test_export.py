@@ -128,7 +128,7 @@ def test_manifest_describes_the_model(game, net, tmp_path):
 
 
 def test_the_index_lists_every_network_that_exists(tmp_path):
-    """Several networks per game - chess keeps one per stage - each with its file.
+    """Every exported network, each with its file - a game can have more than one.
 
     A manifest whose graph is missing is left out, so the page cannot offer a
     network it would fail to load.
@@ -136,8 +136,8 @@ def test_the_index_lists_every_network_that_exists(tmp_path):
     manifests = {
         "connect4": {"game": "connect4", "generation": 40},
         "chess": {"game": "chess", "generation": 0},
-        "chess-imitation1": {"game": "chess", "generation": 1, "label": "Imitation 1"},
-        "chess-imitation2": {"game": "chess", "generation": 2, "label": "Imitation 2"},
+        "chess-imitation1": {"game": "chess", "generation": 1},
+        "chess-imitation2": {"game": "chess", "generation": 2},
     }
     for name, manifest in manifests.items():
         (tmp_path / f"{name}.json").write_text(json.dumps(manifest))
@@ -145,10 +145,10 @@ def test_the_index_lists_every_network_that_exists(tmp_path):
             (tmp_path / f"{name}.onnx").write_bytes(b"graph")
 
     index = json.loads(write_index(tmp_path).read_text())["models"]
-    assert [(e["game"], e["file"], e["label"], e["generation"]) for e in index] == [
-        ("chess", "chess", None, 0),
-        ("chess", "chess-imitation1", "Imitation 1", 1),
-        ("connect4", "connect4", None, 40),
+    assert [(e["game"], e["file"], e["generation"]) for e in index] == [
+        ("chess", "chess", 0),
+        ("chess", "chess-imitation1", 1),
+        ("connect4", "connect4", 40),
     ]
 
 

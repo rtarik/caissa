@@ -49,9 +49,14 @@ function pgnDate(iso: string): string {
   return `${date.getFullYear()}.${pad(date.getMonth() + 1)}.${pad(date.getDate())}`;
 }
 
-/** How the engine appears in a game's record: its level, and its engine when not the usual one. */
+/**
+ * How the engine appears in a game's record: its level - and, in games saved
+ * when chess offered two engines, which of them it was.
+ */
 export function engineName(record: GameRecord): string {
-  return `Caissa (${record.level}, ${record.networkLabel})`;
+  return record.networkLabel
+    ? `Caissa (${record.level}, ${record.networkLabel})`
+    : `Caissa (${record.level})`;
 }
 
 /** The final comment: what an analysis tool shows under the last move. */

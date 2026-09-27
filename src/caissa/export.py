@@ -83,9 +83,9 @@ def write_index(directory: str | Path) -> Path:
     it in TypeScript means the menu cannot claim a game that is not there, and
     cannot hide one that is.
 
-    A game can have several networks - chess keeps one per training stage, so the
-    owner can play each and compare - so every entry names its file and a label,
-    and the page defaults to the highest generation.
+    A game can have more than one network exported - a newer stage beside an
+    older one - so every entry names its file, and the page plays the highest
+    generation.
     """
     directory = Path(directory)
     entries = []
@@ -98,7 +98,6 @@ def write_index(directory: str | Path) -> Path:
         entries.append({
             "game": data["game"],
             "file": manifest.stem,
-            "label": data.get("label"),
             "generation": data.get("generation"),
             "parameters": data.get("parameters"),
         })

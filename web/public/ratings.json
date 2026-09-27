@@ -75,65 +75,6 @@
      }
     }
    ]
-  },
-  "chess": {
-   "checkpoint": "chess-gen0000.pt",
-   "moveSeconds": 0.1,
-   "book": true,
-   "levels": [
-    {
-     "label": "Beginner",
-     "simulations": 0,
-     "rating": 0,
-     "low": 0,
-     "high": 958,
-     "games": 24,
-     "scores": {
-      "1320": 0.0,
-      "1500": 0.0
-     },
-     "below": 958
-    },
-    {
-     "label": "Casual",
-     "simulations": 40,
-     "rating": 0,
-     "low": 0,
-     "high": 958,
-     "games": 24,
-     "scores": {
-      "1320": 0.0,
-      "1500": 0.0
-     },
-     "below": 958
-    },
-    {
-     "label": "Strong",
-     "simulations": 200,
-     "rating": 720,
-     "low": 0,
-     "high": 1064,
-     "games": 24,
-     "scores": {
-      "1320": 0.042,
-      "1500": 0.0
-     },
-     "below": 1064
-    },
-    {
-     "label": "Master",
-     "simulations": 600,
-     "rating": 0,
-     "low": 0,
-     "high": 958,
-     "games": 24,
-     "scores": {
-      "1320": 0.0,
-      "1500": 0.0
-     },
-     "below": 958
-    }
-   ]
   }
  }
 }

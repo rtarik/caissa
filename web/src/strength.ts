@@ -12,7 +12,7 @@
  * what a step is worth against anybody else, which is what a player meets.
  */
 import { LEVELS } from "./levels";
-import { measuredElo, type Rating } from "./ui/sheet";
+import { measuredElo, type Rating } from "./ui/choices";
 
 /** One rung of the self-play ladder, as `levels.json` has it. */
 export interface OwnRung {

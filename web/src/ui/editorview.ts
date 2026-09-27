@@ -79,14 +79,3 @@ export function problemsHtml(found: string[]): string {
   if (!found.length) return `<p class="setup-ok">Ready to play.</p>`;
   return `<ul class="setup-problems">${found.map((problem) => `<li>${problem}</li>`).join("")}</ul>`;
 }
-
-/** A small, still picture of a position, for the new-game sheet. */
-export function miniBoardHtml(setup: Setup, whiteAtBottom: boolean): string {
-  const cells = displayOrder(whiteAtBottom).map((square) => {
-    const piece = setup.squares[square];
-    const dark = (square % 8 + Math.floor(square / 8)) % 2 === 0;
-    return `<span class="mini-sq ${dark ? "dark" : "light"}">${
-      piece ? pieceSvg(piece.toLowerCase(), colourOf(piece)) : ""}</span>`;
-  }).join("");
-  return `<div class="mini-board" aria-hidden="true">${cells}</div>`;
-}

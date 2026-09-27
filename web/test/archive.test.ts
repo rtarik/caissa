@@ -62,7 +62,6 @@ function record(overrides: Partial<GameRecord> = {}): GameRecord {
     level: "Master",
     simulations: 600,
     network: "chess-imitation1",
-    networkLabel: "Imitation 1",
     result: "*",
     ...overrides,
   };
@@ -174,7 +173,7 @@ describe("the exported PGN", () => {
     expect(board.history()).toEqual(["e4", "c5", "Nf3", "d6"]);
     const headers = board.getHeaders();
     expect(headers.White).toBe("You");
-    expect(headers.Black).toBe("Caissa (Master, Imitation 1)");
+    expect(headers.Black).toBe("Caissa (Master)");
     expect(headers.Date).toBe("2026.09.26");
     expect(headers.Result).toBe("*");
   });
@@ -182,8 +181,16 @@ describe("the exported PGN", () => {
   it("puts the players the right way round when you had Black", () => {
     const headers = new Board();
     headers.loadPgn(recordPgn(record({ humanWhite: false })));
-    expect(headers.getHeaders().White).toBe("Caissa (Master, Imitation 1)");
+    expect(headers.getHeaders().White).toBe("Caissa (Master)");
     expect(headers.getHeaders().Black).toBe("You");
+  });
+
+  it("keeps naming the engine in games saved when chess offered two", () => {
+    // Those games were played against a particular one - an untrained network
+    // plays nothing like the trained one - and their record should still say so.
+    const board = new Board();
+    board.loadPgn(recordPgn(record({ network: "chess", networkLabel: "Untrained" })));
+    expect(board.getHeaders().Black).toBe("Caissa (Master, Untrained)");
   });
 
   it("gives the engine's side its rating and no one else's", () => {
