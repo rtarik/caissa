@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 import {
   STANDARD_FEN, emptySetup, fenOf, parseFen, possibleCastling, problems,
-  withCastling, withPiece, withSideToMove,
+  withCastling, withMovedPiece, withPiece, withSideToMove,
 } from "../src/editor";
 import { Chess } from "../src/games/chess";
 
@@ -125,5 +125,37 @@ describe("what stops a setup being played", () => {
       // moves from wherever this puts it.
       expect(state.fen).toBe(fen);
     }
+  });
+});
+
+describe("moving pieces by hand, as on a real board", () => {
+  const sq = (name: string) => (name.charCodeAt(1) - 49) * 8 + name.charCodeAt(0) - 97;
+
+  it("lifts a piece and puts it down, leaving its square empty and the turn alone", () => {
+    const after = withMovedPiece(setup(STANDARD_FEN), sq("e2"), sq("e4"));
+    expect(fenOf(after)).toBe("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 1");
+  });
+
+  it("takes whatever stood where it lands", () => {
+    const before = setup("4k3/8/8/3p4/4P3/8/8/4K3 w - - 0 1");
+    expect(fenOf(withMovedPiece(before, sq("e4"), sq("d5")))).toBe("4k3/8/8/3P4/8/8/8/4K3 w - - 0 1");
+  });
+
+  it("castles in two moves of the hand, and the rights go with the king", () => {
+    const king = withMovedPiece(setup(STANDARD_FEN), sq("e1"), sq("g1"));
+    expect(king.castling).toEqual({ K: false, Q: false, k: true, q: true });
+    const castled = withMovedPiece(king, sq("h1"), sq("f1"));
+    expect(fenOf(castled)).toBe("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQ1RK1 w kq - 0 1");
+  });
+
+  it("forgets a pasted en passant square, which described another position", () => {
+    const before = setup("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 12");
+    expect(withMovedPiece(before, sq("e1"), sq("d1")).enPassant).toBe("-");
+  });
+
+  it("changes nothing for an empty square, or a piece put back where it was", () => {
+    const start = setup(STANDARD_FEN);
+    expect(withMovedPiece(start, sq("e4"), sq("e5"))).toBe(start);
+    expect(withMovedPiece(start, sq("e2"), sq("e2"))).toBe(start);
   });
 });

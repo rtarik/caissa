@@ -1251,6 +1251,13 @@ body[data-game="chess"] {
 }
 .editor-stage { min-width: 0; }
 .editor-board .sq { cursor: pointer; }
+/* With the hand, pieces are picked up: the page must not scroll or select text under a dragging finger. */
+.editor-board.hand { user-select: none; -webkit-user-select: none; }
+.editor-board.hand .sq:has(.chess-piece) { cursor: grab; touch-action: none; }
+.editor-board .sq.lifted { box-shadow: inset 0 0 0 3px var(--accent); }
+.editor-board .sq.drop-target { box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--accent) 80%, transparent); }
+.editor-board .sq.emptied .chess-piece { opacity: 0.25; }
+.chess-piece.drag-ghost { position: fixed; z-index: 50; cursor: grabbing; }
 .editor-board .sq:hover { box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--accent) 60%, transparent); }
 .editor-panel { display: grid; gap: 14px; }
 .panel h2.editor-title { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; text-transform: none; color: var(--ink); margin: 0; }
@@ -1281,10 +1288,11 @@ body[data-game="chess"] {
 .tool input:focus-visible + span { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
 .tool .chess-piece { width: 82%; height: 82%; }
 .tool .chess-piece.black { stroke: color-mix(in srgb, var(--ink) 60%, transparent); }
-/* The eraser spans the last row on its own, where it cannot be mistaken for a piece. */
-.tool:last-child { grid-column: 1 / -1; }
-.tool:last-child span { aspect-ratio: auto; height: 34px; }
-.eraser { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* The hand and the eraser share the last row, named, where neither can be mistaken for a piece. */
+.tool.wide { grid-column: span 3; }
+.tool.wide span { aspect-ratio: auto; height: 36px; display: flex; justify-content: center; gap: 7px;
+  font-size: 14px; font-weight: 560; }
+.tool-icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .editor-tools { display: flex; flex-wrap: wrap; gap: 6px; }
 .editor-tools [hidden] { display: none; }

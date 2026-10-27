@@ -143,6 +143,19 @@ export function withPiece(setup: Setup, square: number, piece: Piece | null): Se
   return { ...setup, squares, enPassant: "-", castling: allowed(setup.castling, squares) };
 }
 
+/**
+ * Lift a piece and put it down somewhere else, as on a real board: whatever
+ * stood there is taken off. No rules - no turn passes, castling is two moves of
+ * the hand and promotion is a pawn swapped for a piece - so it is as free to
+ * undo and to experiment with as the board itself. Rights the move takes away
+ * go, as any edit's do.
+ */
+export function withMovedPiece(setup: Setup, from: number, to: number): Setup {
+  const piece = setup.squares[from];
+  if (!piece || from === to) return setup;
+  return withPiece(withPiece(setup, to, piece), from, null);
+}
+
 export function withCastling(setup: Setup, right: keyof Castling, on: boolean): Setup {
   const castling = { ...setup.castling, [right]: on };
   return { ...setup, castling: allowed(castling, setup.squares) };

@@ -933,6 +933,7 @@ can set up, openings that vary.
 | 11.6 | **Done.** A rough rating for each level against Stockfish at known strengths, for both chess networks, with openings from the book as the site plays them; shown on the level cards. The untrained network sits below Stockfish's floor and is shown as a ceiling. Led on to checking every game's level ladder against outside opponents (results below) | chess, then all games |
 | 11.7 | **Done.** One opponent per game. The untrained chess network, under 1000 at every level, is no longer shipped, and with it go the engine choice and the variant names; old saved games keep the name of the engine they were played against | chess |
 | 11.8 | **Done.** No popup. The level switch sits on Caissa's card and the side switch on yours until the game begins; your first move begins it, or Start when the first move is not yours. The side panel says what starts the game before it, and keeps the moves during it; leaving a game in progress takes two clicks | all games |
+| 11.9 | **Done.** A hand tool in the board editor, and its default: drag a piece (or click it, then its square) to move it, taking whatever stood there - no rules, as on a real board, so an opening line is played out by hand; castling and promotion are done by hand too, and the side to move stays as set | chess |
 
 Decisions taken in the discussion:
 

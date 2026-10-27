@@ -24,7 +24,7 @@ import { chessOutcome, collectionPgn, engineName, movesText, pgnFileName, record
 import { pieceSvg } from "./ui/pieces";
 import { actionOf, type ChessState } from "./games/chess";
 import { bookMove, openingOf, parseBook, parseNames, type Book, type BookMove, type Names } from "./openings";
-import { STANDARD_FEN, fenOf, parseFen, problems, withCastling, withPiece, withSideToMove, type Castling, type Setup } from "./editor";
+import { STANDARD_FEN, fenOf, parseFen, problems, withCastling, withMovedPiece, withPiece, withSideToMove, type Castling, type Setup } from "./editor";
 import { editorBoardHtml, paletteHtml, problemsHtml, rulesHtml, type Tool } from "./ui/editorview";
 import { playerCardHtml, tokenFor, type PlayerCard } from "./ui/players";
 import {
@@ -105,7 +105,9 @@ let bookNote: (BookMove & { san: string }) | null = null;
 const BOOK_PAUSE = 450;
 /** The board editor's work in progress while it is open, and the piece it places. */
 let editing: Setup | null = null;
-let tool: Tool = "P";
+let tool: Tool = "hand";
+/** The square whose piece the hand holds, between a click on it and a click on where it goes. */
+let lifted: number | null = null;
 /** Measured ratings, per network file and then per level, where there are any. */
 let ratings = new Map<string, Map<string, Rating>>();
 try {
@@ -674,7 +676,7 @@ app.innerHTML = `
         <aside class="editor-side">
           <section class="panel editor-panel">
             <h2 class="editor-title">Set up a position</h2>
-            <p class="editor-hint">Pick a piece, then click squares to place it. Click a piece again to take it off.</p>
+            <p class="editor-hint">With the hand, drag pieces as on a real board, or click one and then where it goes. With a piece picked, click squares to place it; click it again to take it off.</p>
             <div id="editor-palette"></div>
             <div class="editor-tools">
               <button class="button small" data-editor="clear">Clear board</button>
@@ -867,9 +869,19 @@ editorEl.addEventListener("click", (event) => {
   const square = target.closest<HTMLElement>("[data-square]");
   if (square) {
     const index = Number(square.dataset.square);
-    // Placing a piece where the same piece stands takes it off: one tool does both.
-    const same = editing.squares[index] === tool;
-    editing = withPiece(editing, index, same ? null : tool);
+    if (tool === "hand") {
+      // A drag has already put its piece down; the click it ends with is not a second move.
+      if (dropped) return;
+      if (lifted === null) lifted = editing.squares[index] ? index : null;
+      else {
+        editing = withMovedPiece(editing, lifted, index);
+        lifted = null;
+      }
+    } else {
+      // Placing a piece where the same piece stands takes it off: one tool does both.
+      const same = editing.squares[index] === tool;
+      editing = withPiece(editing, index, same ? null : tool);
+    }
     renderEditor(true);
     return;
   }
@@ -886,7 +898,10 @@ editorEl.addEventListener("click", (event) => {
 editorEl.addEventListener("change", (event) => {
   if (!editing) return;
   const input = event.target as HTMLInputElement;
-  if (input.name === "tool") tool = (input.value || null) as Tool;
+  if (input.name === "tool") {
+    tool = (input.value || null) as Tool;
+    lifted = null;
+  }
   else if (input.name === "tomove") editing = withSideToMove(editing, input.value === "w");
   else if (input.name === "castle") editing = withCastling(editing, input.value as keyof Castling, input.checked);
   else return;
@@ -904,7 +919,68 @@ editorFenEl.addEventListener("input", () => {
   renderEditor(false);
 });
 
+/**
+ * Dragging with the hand. Pointer events, so a mouse and a finger work alike;
+ * the piece follows the pointer as a copy while the square it left shows it
+ * gone, and where it is let go decides the move. Let go off the board, or back
+ * where it started, and nothing changes.
+ */
+let drag: { from: number; pointerId: number; x: number; y: number; ghost: Element | null } | null = null;
+/** True for the instant after a drop, so the click that follows does not count as a move too. */
+let dropped = false;
+
+editorBoardEl.addEventListener("pointerdown", (event) => {
+  if (!editing || tool !== "hand" || event.button !== 0) return;
+  const square = (event.target as HTMLElement).closest<HTMLElement>("[data-square]");
+  if (!square || !editing.squares[Number(square.dataset.square)]) return;
+  drag = { from: Number(square.dataset.square), pointerId: event.pointerId, x: event.clientX, y: event.clientY, ghost: null };
+});
+
+window.addEventListener("pointermove", (event) => {
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  // A few pixels of wobble is still a click.
+  if (!drag.ghost && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
+  const origin = editorBoardEl.querySelector<HTMLElement>(`[data-square="${drag.from}"]`);
+  if (!drag.ghost && origin) {
+    const piece = origin.querySelector(".chess-piece");
+    if (!piece) return;
+    const ghost = piece.cloneNode(true) as Element;
+    ghost.classList.add("drag-ghost");
+    const size = origin.getBoundingClientRect().width;
+    (ghost as HTMLElement).style.width = (ghost as HTMLElement).style.height = `${size}px`;
+    document.body.append(ghost);
+    origin.classList.add("emptied");
+    drag.ghost = ghost;
+    lifted = null;
+  }
+  const ghost = drag.ghost as HTMLElement;
+  const size = ghost.getBoundingClientRect().width;
+  ghost.style.left = `${event.clientX - size / 2}px`;
+  ghost.style.top = `${event.clientY - size / 2}px`;
+  const over = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-square]");
+  for (const square of editorBoardEl.querySelectorAll(".drop-target")) square.classList.remove("drop-target");
+  if (over && editorBoardEl.contains(over)) over.classList.add("drop-target");
+});
+
+function endDrag(event: PointerEvent, cancelled: boolean): void {
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const { from, ghost } = drag;
+  drag = null;
+  if (!ghost) return; // never left the square: an ordinary click, handled as one
+  ghost.remove();
+  dropped = true;
+  window.setTimeout(() => { dropped = false; }, 0);
+  const over = cancelled ? null : document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-square]");
+  if (editing && over && editorBoardEl.contains(over)) {
+    editing = withMovedPiece(editing, from, Number(over.dataset.square));
+  }
+  renderEditor(true);
+}
+window.addEventListener("pointerup", (event) => endDrag(event, false));
+window.addEventListener("pointercancel", (event) => endDrag(event, true));
+
 function openEditor(fen: string): void {
+  lifted = null;
   editing = parseFen(fen) ?? parseFen(STANDARD_FEN);
   editorFenErrorEl.hidden = true;
   editorEl.hidden = false;
@@ -936,7 +1012,8 @@ function leaveEditor(keep: boolean): void {
 function renderEditor(rewriteFen: boolean): void {
   if (!editing) return;
   // The board faces the side you are going to play; Random shows White below.
-  editorBoardEl.innerHTML = editorBoardHtml(editing, settings.seat !== "second");
+  editorBoardEl.innerHTML = editorBoardHtml(editing, settings.seat !== "second", lifted);
+  editorBoardEl.classList.toggle("hand", tool === "hand");
   editorPaletteEl.innerHTML = paletteHtml(tool);
   editorRulesEl.innerHTML = rulesHtml(editing);
   if (rewriteFen) editorFenEl.value = fenOf(editing);
